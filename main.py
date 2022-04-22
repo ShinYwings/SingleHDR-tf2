@@ -1,4 +1,5 @@
 import logging
+from sys import stderr
 logging.basicConfig(level=logging.INFO)
 
 import os
@@ -18,11 +19,13 @@ import hallucination_net as hal
 
 AUTO = tf.data.AUTOTUNE
 
-HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
+# HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
+HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
 
 # Hyper parameters
 LEARNING_RATE = 1e-3
 BATCH_SIZE = 8
+
 EPOCHS = 5000000
 IMSHAPE = (32,128,3)
 RENDERSHAPE = (64,64,3)
@@ -34,8 +37,8 @@ DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "dataset/tfrecord")
 TRAIN_DIR = os.path.join(DATASET_DIR, "train")
 TEST_DIR = os.path.join(DATASET_DIR, "test")
 
-TRAIN_DEQ = True
-TRAIN_LIN = False
+TRAIN_DEQ = False
+TRAIN_LIN = True
 TRAIN_HAL = False
 
 DEQ_PRETRAINED_DIR = None
@@ -62,8 +65,7 @@ def hdr_logDecompression(x, validDR = 5000.):
     
     return output
 
-def _tone_mapping(hdr, crf, t):
-
+def _tone_mapping(module, hdr, crf, t):
     b, h, w, c, = tf_utils.get_tensor_shape(hdr)
     b, k, = tf_utils.get_tensor_shape(crf)
     b, = tf_utils.get_tensor_shape(t)
@@ -109,7 +111,17 @@ def _tone_mapping(hdr, crf, t):
     extreme_cases = tf.logical_or(over_exposed, under_exposed)
     loss_mask = tf.cast(tf.logical_not(extreme_cases), tf.float32)
 
-    return [ldr, jpeg_img_float, loss_mask]
+    if module == "deq":
+        return [ldr, jpeg_img_float, loss_mask]
+
+    elif module == "lin":
+        return [ldr, clipped_hdr_t, loss_mask]
+
+    elif module == "hal":
+        return
+
+    else:
+        exit(0)
     
 def _parse_function(example_proto):
     # Parse the input `tf.train.Example` proto using the dictionary above.
@@ -170,14 +182,14 @@ if __name__=="__main__":
 
     # TODO
     _deq  = deq.model()
-    # _lin = lin.model()
+    _lin = lin.model()
     # _hal = hal.model()
 
     """"Create Output Image Directory"""
     if(TRAIN_DEQ):
         train_summary_writer_deq, test_summary_writer_deq, logdir_deq = tf_utils.createDirectories(root_dir, name="deq", dir="tensorboard")
         print('tensorboard --logdir={}'.format(logdir_deq))
-        train_outImgDir_deq, test_outImgDir_deq = tf_utils.createDirectories(root_dir, name="deq", dir="outputImg")
+        # train_outImgDir_deq, test_outImgDir_deq = tf_utils.createDirectories(root_dir, name="deq", dir="outputImg")
 
         """Model initialization"""
         optimizer_deq, train_loss_deq, test_loss_deq = tf_utils.model_initialization("deq", LEARNING_RATE) 
@@ -190,24 +202,24 @@ if __name__=="__main__":
                                         optimizer=optimizer_deq)
     
     # TODO
-    # if(TRAIN_LIN):
-    #     train_summary_writer_lin, test_summary_writer_lin, logdir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="tensorboard")
-    #     print('tensorboard --logdir={}'.format(logdir_lin))
-    #     train_outImgDir_lin, test_outImgDir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="outputImg")
+    if(TRAIN_LIN):
+        train_summary_writer_lin, test_summary_writer_lin, logdir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="tensorboard")
+        print('tensorboard --logdir={}'.format(logdir_lin))
+        # train_outImgDir_lin, test_outImgDir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="outputImg")
         
-    #     """Model initialization"""
-    #     optimizer_lin, train_loss_lin, test_loss_lin = tf_utils.model_initialization("lin", LEARNING_RATE)
+        """Model initialization"""
+        optimizer_lin, train_loss_lin, test_loss_lin = tf_utils.model_initialization("lin", LEARNING_RATE)
 
-    #     ckpt_lin, ckpt_manager_lin = tf_utils.checkpoint_initialization(
-    #                                     model_name="lin",
-    #                                     pretrained_dir=LIN_PRETRAINED_DIR,
-    #                                     checkpoint_path=checkpoint_path,
-    #                                     model=_lin,
-    #                                     optimizer=optimizer_lin)
+        ckpt_lin, ckpt_manager_lin = tf_utils.checkpoint_initialization(
+                                        model_name="lin",
+                                        pretrained_dir=LIN_PRETRAINED_DIR,
+                                        checkpoint_path=checkpoint_path,
+                                        model=_lin,
+                                        optimizer=optimizer_lin)
     # if(TRAIN_HAL):
     #     train_summary_writer_hal, test_summary_writer_hal, logdir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="tensorboard")
     #     print('tensorboard --logdir={}'.format(logdir_hal))
-    #     train_outImgDir_hal, test_outImgDir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="outputImg")
+    #    # train_outImgDir_hal, test_outImgDir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="outputImg")
 
     #     """Model initialization"""
     #     optimizer_hal, train_loss_hal, test_loss_hal = tf_utils.model_initialization("hal", LEARNING_RATE)
@@ -238,8 +250,8 @@ if __name__=="__main__":
         # Dequantization #
         ##################
         @tf.function
-        def deq_train_step(ldr, jpeg_img_float, loss_mask):
-
+        def deq_train_step(ds):
+            ldr, jpeg_img_float, loss_mask = ds
             with tf.GradientTape() as deq_tape:
                 pred = _deq(jpeg_img_float, training= True)
                 pred = _clip(pred)
@@ -253,7 +265,7 @@ if __name__=="__main__":
             optimizer_deq.apply_gradients(zip(gradients_deq, _deq.trainable_variables))
             train_loss_deq(mask_loss)
 
-            return pred
+            return [pred]
 
         @tf.function
         def deq_test_step(gt):
@@ -265,25 +277,28 @@ if __name__=="__main__":
         ##################
         # Linearization  #
         ##################
-        
-        # TODO
-        # @tf.function
-        # def lin_train_step(gt):
+        @tf.function
+        def lin_train_step(ds):
+            ldr, clipped_hdr_t, loss_mask, invcrf = ds
 
-        #     with tf.GradientTape() as lin_tape:
-        #         pred = _lin(gt, training= True)
-        #         l1_loss = tf.reduce_mean(tf.square(pred - gt))
+            with tf.GradientTape() as lin_tape:
+                pred_invcrf = _lin(ldr, training= True)
+                pred_lin_ldr = tf_utils.apply_rf(ldr, pred_invcrf)
+                crf_loss = tf.reduce_mean(tf.square(pred_invcrf - invcrf), axis=1, keepdims=True)
+                loss = tf_utils.get_l2_loss_with_mask(pred_lin_ldr, clipped_hdr_t)
+                mask_loss = tf.reduce_mean(tf.multiply(tf.add(loss, 0.1*crf_loss),loss_mask))
             
-        #     gradients_lin = lin_tape.gradient(l1_loss, _lin.trainable_variables)
-        #     optimizer_lin.apply_gradients(zip(gradients_lin, _lin.trainable_variables))
-        #     train_loss_lin(l1_loss)
+            gradients_lin = lin_tape.gradient(mask_loss, _lin.trainable_variables)
+            optimizer_lin.apply_gradients(zip(gradients_lin, _lin.trainable_variables))
+            train_loss_lin(mask_loss)
 
-        # @tf.function
-        # def lin_test_step(gt):
+            return [pred_lin_ldr, tf.reduce_mean(crf_loss)]
+        @tf.function
+        def lin_test_step(gt):
             
-        #     pred = _lin(gt, training= False)
-        #     l1_loss = tf.reduce_mean(tf.square(pred - gt))
-        #     test_loss_lin(l1_loss)
+            pred = _lin(gt, training= False)
+            l1_loss = tf.reduce_mean(tf.square(pred - gt))
+            test_loss_lin(l1_loss)
 
         ##################
         # Hallucination  #
@@ -323,7 +338,9 @@ if __name__=="__main__":
         # print("crf len : ", crf.__len__() , "   crf shape : ", np.shape(crf))
         # print("t   len : ", t.__len__() , "   t shape : ", np.shape(t))
         
-
+        if module == "deq":
+            EPOCHS = 47000     # overfitted on around 52.4k iter
+        
         # TODO model verification
         #########################################
         for epoch in range(EPOCHS): # ACTUALLY iteraion, NOT Epoch in this paper, 
@@ -334,15 +351,31 @@ if __name__=="__main__":
 
             hdr_val, crf_val, invcrf_val, t_val = dataset_reader.read_batch_data()
 
-            ldr, jpeg_img_float, loss_mask = tf.py_function(_tone_mapping, [hdr_val, crf_val, t_val], [tf.float32, tf.float32, tf.float32])
-                
-            pred = train_step(ldr, jpeg_img_float, loss_mask)
+            preprocessed_dataset = tf.py_function(_tone_mapping, [module, hdr_val, crf_val, t_val], [tf.float32, tf.float32, tf.float32])
+            
+            if module == "lin":
+                preprocessed_dataset.append(invcrf_val)
+            
+            pred = train_step(preprocessed_dataset)
 
             with train_summary_writer.as_default():
+
+                ldr       = preprocessed_dataset[0]
+                loss_mask = preprocessed_dataset[2]
+
                 tf.summary.scalar('loss', train_loss.result(), step=epoch+1)
+                
                 tf.summary.image('ldr', ldr, step=epoch+1)
-                tf.summary.image('jpeg_img_float', jpeg_img_float, step=epoch+1)
-                tf.summary.image('pred', pred, step=epoch+1)
+
+                if module == "deq":
+                    tf.summary.image('jpeg_img_float', preprocessed_dataset[1], step=epoch+1)
+                    tf.summary.image('pred', pred[0], step=epoch+1)
+
+                if module == "lin":
+                    tf.summary.image('pred_lin_ldr', pred[0], step=epoch+1)
+                    tf.summary.scalar('crf_loss', pred[1], step=epoch+1)
+                    tf.summary.image('clipped_hdr_t', preprocessed_dataset[1], step=epoch+1)
+                
                 tf.summary.scalar('loss_mask 0', tf.squeeze(loss_mask[0]), step=epoch+1)
                 tf.summary.scalar('loss_mask 1', tf.squeeze(loss_mask[1]), step=epoch+1)
                 tf.summary.scalar('loss_mask 2', tf.squeeze(loss_mask[2]), step=epoch+1)
@@ -404,15 +437,15 @@ if __name__=="__main__":
                 ckpt_manager = ckpt_manager_deq)
     
     # TODO
-    # if TRAIN_LIN:
-    #     train(module="lin",
-    #             train_step=lin_train_step, test_step=lin_test_step, 
-    #             train_loss=train_loss_lin, test_loss=test_loss_lin,
-    #             train_ds = train_ds, test_ds = test_ds,
-    #             train_summary_writer = train_summary_writer_lin,
-    #             test_summary_writer = test_summary_writer_lin,
-    #             ckpt = ckpt_lin,
-    #             ckpt_manager = ckpt_manager_lin)
+    if TRAIN_LIN:
+        train(module="lin",
+                train_step=lin_train_step, test_step=lin_test_step, 
+                train_loss=train_loss_lin, test_loss=test_loss_lin,
+                # train_ds = train_ds, test_ds = test_ds, # TODO model verification
+                train_summary_writer = train_summary_writer_lin,
+                test_summary_writer = test_summary_writer_lin,
+                ckpt = ckpt_lin,
+                ckpt_manager = ckpt_manager_lin)
     
     # if TRAIN_HAL:
     #     train(module="hal",

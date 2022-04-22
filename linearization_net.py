@@ -115,7 +115,7 @@ class crfFeatureNet(Model):
         res4  = self.res4(res3, training)
         res5  = self.res5(res4, training)
 
-        return tf.reduce_mean(res5, [1, 2], keep_dims=False)
+        return tf.reduce_mean(res5, [1, 2], keepdims=False)
 
     def overwrite_init(self, sess):
 
@@ -192,7 +192,7 @@ class AEInvcrfDecodeNet(Model):
         #     x = tf.keras.layers.Dense(feature, c, activation=self.act, kernel_regularizer=self.reg)
         x = self.fc(feature)  # [b, n_p - 1]
         invcrf = self.invcrf_pca_w_2_invcrf(x)
-        # x = tf.concat([x, 1.0 - tf.reduce_sum(x, axis=-1, keep_dims=True)], -1) # [b, n_p]
+        # x = tf.concat([x, 1.0 - tf.reduce_sum(x, axis=-1, keepdims=True)], -1) # [b, n_p]
         # x = self._f(x) # [b, s]
         return invcrf
 
@@ -301,10 +301,10 @@ class AEInvcrfDecodeNet(Model):
         return e, f0, h
 
     
-class Linearization_net(Model):
+class model(Model):
 
     def __init__(self):
-        super(Linearization_net).__init__()
+        super(model, self).__init__()
         self.crf_feature_net = crfFeatureNet()
         self.ae_invcrf_decode_net = AEInvcrfDecodeNet()
     
@@ -369,7 +369,7 @@ class Linearization_net(Model):
         g = rf[:, 1:] - rf[:, :-1]
         # [b, 1023]
 
-        min_g = tf.reduce_min(g, axis=-1, keep_dims=True)
+        min_g = tf.reduce_min(g, axis=-1, keepdims=True)
         # [b, 1]
 
         # r = tf.nn.relu(1e-6 - min_g)
@@ -379,7 +379,7 @@ class Linearization_net(Model):
         new_g = g + r
         # [b, 1023]
 
-        new_g = new_g / tf.reduce_sum(new_g, axis=-1, keep_dims=True)
+        new_g = new_g / tf.reduce_sum(new_g, axis=-1, keepdims=True)
         # [b, 1023]
 
         new_rf = tf.cumsum(new_g, axis=-1)
