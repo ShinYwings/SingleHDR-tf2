@@ -182,6 +182,7 @@ class HDRDataset(Dataset):
     @staticmethod
     def _hdr_read(path):
         hdr = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        hdr = hdr[:,:,::-1] # BGR2RGB
         hdr = np.flip(hdr, -1)
         hdr = np.clip(hdr, 0, None)
         return hdr

@@ -37,277 +37,176 @@
 """
 
 import tensorflow as tf
-import tensorlayer as tl
 import numpy as np
+from tensorflow.keras import Model
+
+class down1(Model):
+    
+    def __init__(self, outChannels, kernel_size=(3,3), strides=1, padding="SAME"):
+        super(down1, self).__init__()
+        self.conv1 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.conv2 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.pool  = tf.keras.layers.MaxPool2D((2,2), strides=2, padding=padding)
+
+    def call(self, x):
+        
+        x = tf.nn.relu(self.conv1(x))
+        skip_layer = tf.nn.relu(self.conv2(x))
+        x = self.pool(skip_layer)
+
+        return x, skip_layer
+
+class down2(Model):
+    
+    def __init__(self, outChannels, kernel_size=(3,3), strides=1, padding="SAME"):
+        super(down2, self).__init__()
+        self.conv1 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.conv2 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.conv3 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.pool  = tf.keras.layers.MaxPool2D((2,2), strides=2, padding=padding)
+
+    def call(self, x):
+        
+        x = tf.nn.relu(self.conv1(x))
+        x = tf.nn.relu(self.conv2(x))
+        skip_layer = tf.nn.relu(self.conv3(x))
+        x = self.pool(skip_layer)
+
+        return x, skip_layer
+
+class up(Model):
+    
+    def __init__(self, outChannels, kernel_size=(3,3), strides=1, padding="SAME"):
+        super(up, self).__init__()
+        self.conv1 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.norm1 = tf.keras.layers.BatchNormalization()
+        self.conv2 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+
+    def call(self, x, training="training"):
+        x = tf.image.resize(x, 2*tf.shape(x)[1:3], method=tf.image.ResizeMethod.BILINEAR)
+        x = tf.nn.relu(self.conv1(x))
+        x = self.norm1(x, training)
+        x = tf.nn.relu(x)
+
+        return x
+
+class skipLayer(Model):
+    
+    def __init__(self, outChannels, kernel_size=(1,1), strides=1, padding="SAME"):
+        super(skipLayer, self).__init__()
+        self.conv1 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+
+    def call(self, x, sk):
+        
+        sk = tf.scalar_mul(1.0 / 255, sk)
+
+        x = tf.concat([x, sk], -1)
+
+        x = self.conv1(x)
+        
+        return x
+
+class model(Model):
+    def __init__(self, VGG_MEAN = [103.939, 116.779, 123.68], padding="SAME"):
+        super(model, self).__init__()
+
+        self.VGG_MEAN = VGG_MEAN
+
+        self.d1 = down1(outChannels=64)
+        self.d2 = down1(outChannels=128)
+        self.d3 = down2(outChannels=256)
+        self.d4 = down2(outChannels=512)
+        self.d5 = down2(outChannels=512)
+        
+        self.conv1 = tf.keras.layers.Conv2D(512, kernel_size=(3,3), strides=(1,1), padding=padding)
+        self.norm1 = tf.keras.layers.BatchNormalization()
+        self.actv1 = tf.keras.layers.ReLU()
+
+        self.u5 = up(outChannels=512)
+        self.s5 = skipLayer(outChannels=512)
+
+        self.u4 = up(outChannels=512)
+        self.s4 = skipLayer(outChannels=512)
+        
+        self.u3 = up(outChannels=256)
+        self.s3 = skipLayer(outChannels=256)
+        
+        self.u2 = up(outChannels=128)
+        self.s2 = skipLayer(outChannels=128)
+        
+        self.u1 = up(outChannels=64)
+        self.s1 = skipLayer(outChannels=64)
+        
+        self.conv2 = tf.keras.layers.Conv2D(3, kernel_size=(1,1), strides=(1,1), padding=padding)
+        self.norm2 = tf.keras.layers.BatchNormalization()
+        self.actv2 = tf.keras.layers.ReLU()
+
+        self.s0 = skipLayer(outChannels=3)
 
 
-# The HDR reconstruction autoencoder fully convolutional neural network
-def model(x, batch_size=1, training=False):
-    # Encoder network (VGG16, until pool5)
-    x_in = tf.scalar_mul(255.0, x)
-    net_in = tl.layers.InputLayer(x_in, name='input_layer')
-    conv_layers, skip_layers = encoder(net_in)
+    def call(self, input_layer, training="training"):
 
-    # Fully convolutional layers on top of VGG16 conv layers
-    network = tl.layers.Conv2dLayer(conv_layers,
-                                    act=tf.identity,
-                                    shape=[3, 3, 512, 512],
-                                    strides=[1, 1, 1, 1],
-                                    padding='SAME',
-                                    name='encoder/h6/conv')
-    #network = tf.layers.batch_normalization(network, training=training, name='encoder/h6/batch_norm')
-    network = tl.layers.BatchNormLayer(network, is_train=training, name='encoder/h6/batch_norm')
-    network.outputs = tf.nn.relu(network.outputs, name='encoder/h6/relu')
+        x_in = tf.scalar_mul(255.0, input_layer)
 
-    # Decoder network
-    network = decoder(network, skip_layers, batch_size, training)
+        # Convert RGB to BGR
+        red, green, blue = tf.split(x_in, 3, 3)
+        bgr = tf.concat([blue - self.VGG_MEAN[0], green - self.VGG_MEAN[1], red - self.VGG_MEAN[2]], axis=3)
 
-    """if training:
-        return network, conv_layers"""
+        # Encoder
+        x, d1 = self.d1(bgr)
+        x, d2 = self.d2(x)
+        x, d3 = self.d3(x)
+        x, d4 = self.d4(x)
+        enc, d5 = self.d5(x)
 
-    return network, conv_layers
+        # Fully convolutional layers on top of VGG conv layers
+        x = self.conv1(enc)
+        x = self.norm1(x, training)
+        x = self.actv1(x)
 
+        # Decoder
+        x = self.u5(x, training)
+        x = self.s5(x, d5)
 
-# Final prediction of the model, including blending with input
-def get_final(network, x_in):
-    sb, sy, sx, sf = x_in.get_shape().as_list()
-    y_predict = network.outputs
+        x = self.u4(x, training)
+        x = self.s4(x, d4)
+        
+        x = self.u3(x, training)
+        x = self.s3(x, d3)
 
-    # Highlight mask
-    thr = 0.05
-    alpha = tf.reduce_max(x_in, reduction_indices=[3])
-    alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + thr) / thr)
-    alpha = tf.reshape(alpha, [-1, sy, sx, 1])
-    alpha = tf.tile(alpha, [1, 1, 1, 3])
+        x = self.u2(x, training)
+        x = self.s2(x, d2)
+        
+        x = self.u1(x, training)
+        x = self.s1(x, d1)
 
-    # Linearied input and prediction
-    x_lin = tf.pow(x_in, 2.0)
-    y_predict = tf.exp(y_predict) - 1.0 / 255.0
+        x = self.conv2(x)
+        x = self.norm2(x, training)
+        x = self.actv2(x)
 
-    # Alpha blending
-    y_final = (1 - alpha) * x_lin + alpha * y_predict
+        # Final skip-connection
+        out = self.s0(x, bgr)
 
-    return y_final
+        return out, enc
 
+    # TODO ????????????
+    # Final prediction of the model, including blending with input
+    def get_final(network, x_in):
+        sb, sy, sx, sf = x_in.get_shape().as_list()
+        y_predict = network.outputs
 
-# Convolutional layers of the VGG16 model used as encoder network
-def encoder(input_layer):
-    VGG_MEAN = [103.939, 116.779, 123.68]
+        # Highlight mask
+        thr = 0.05
+        alpha = tf.reduce_max(x_in, reduction_indices=[3])
+        alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + thr) / thr)
+        alpha = tf.reshape(alpha, [-1, sy, sx, 1])
+        alpha = tf.tile(alpha, [1, 1, 1, 3])
 
-    # Convert RGB to BGR
-    red, green, blue = tf.split(input_layer.outputs, 3, 3)
-    bgr = tf.concat([blue - VGG_MEAN[0], green - VGG_MEAN[1], red - VGG_MEAN[2]], axis=3)
+        # Linearied input and prediction
+        x_lin = tf.pow(x_in, 2.0)
+        y_predict = tf.exp(y_predict) - 1.0 / 255.0
 
-    network = tl.layers.InputLayer(bgr, name='encoder/input_layer_bgr')
+        # Alpha blending
+        y_final = (1 - alpha) * x_lin + alpha * y_predict
 
-    # Convolutional layers size 1
-    network = conv_layer(network, [3, 64], 'encoder/h1/conv_1')
-    beforepool1 = conv_layer(network, [64, 64], 'encoder/h1/conv_2')
-    network = pool_layer(beforepool1, 'encoder/h1/pool')
-
-    # Convolutional layers size 2
-    network = conv_layer(network, [64, 128], 'encoder/h2/conv_1')
-    beforepool2 = conv_layer(network, [128, 128], 'encoder/h2/conv_2')
-    network = pool_layer(beforepool2, 'encoder/h2/pool')
-
-    # Convolutional layers size 3
-    network = conv_layer(network, [128, 256], 'encoder/h3/conv_1')
-    network = conv_layer(network, [256, 256], 'encoder/h3/conv_2')
-    beforepool3 = conv_layer(network, [256, 256], 'encoder/h3/conv_3')
-    network = pool_layer(beforepool3, 'encoder/h3/pool')
-
-    # Convolutional layers size 4
-    network = conv_layer(network, [256, 512], 'encoder/h4/conv_1')
-    network = conv_layer(network, [512, 512], 'encoder/h4/conv_2')
-    beforepool4 = conv_layer(network, [512, 512], 'encoder/h4/conv_3')
-    network = pool_layer(beforepool4, 'encoder/h4/pool')
-
-    # Convolutional layers size 5
-    network = conv_layer(network, [512, 512], 'encoder/h5/conv_1')
-    network = conv_layer(network, [512, 512], 'encoder/h5/conv_2')
-    beforepool5 = conv_layer(network, [512, 512], 'encoder/h5/conv_3')
-    network = pool_layer(beforepool5, 'encoder/h5/pool')
-
-    return network, (input_layer, beforepool1, beforepool2, beforepool3, beforepool4, beforepool5)
-
-
-# Decoder network
-def decoder(input_layer, skip_layers, batch_size=1, training=False):
-    sb, sx, sy, sf = input_layer.outputs.get_shape().as_list()
-    alpha = 0.0
-
-    # Upsampling 1
-    network = deconv_layer(input_layer, (batch_size, sx, sy, sf, sf), 'decoder/h1/decon2d', alpha, training)
-
-    # Upsampling 2
-    network = skip_connection_layer(network, skip_layers[5], 'decoder/h2/fuse_skip_connection', training)
-    network = deconv_layer(network, (batch_size, sx, sy, sf, sf), 'decoder/h2/decon2d', alpha, training)
-
-    # Upsampling 3
-    network = skip_connection_layer(network, skip_layers[4], 'decoder/h3/fuse_skip_connection', training)
-    network = deconv_layer(network, (batch_size, sx, sy, sf, sf / 2), 'decoder/h3/decon2d', alpha, training)
-
-    # Upsampling 4
-    network = skip_connection_layer(network, skip_layers[3], 'decoder/h4/fuse_skip_connection', training)
-    network = deconv_layer(network, (batch_size, sx, sy, sf / 2, sf / 4), 'decoder/h4/decon2d', alpha,
-                           training)
-
-    # Upsampling 5
-    network = skip_connection_layer(network, skip_layers[2], 'decoder/h5/fuse_skip_connection', training)
-    network = deconv_layer(network, (batch_size, sx, sy, sf / 4, sf / 8), 'decoder/h5/decon2d', alpha,
-                           training)
-
-    # Skip-connection at full size
-    network = skip_connection_layer(network, skip_layers[1], 'decoder/h6/fuse_skip_connection', training)
-
-    # Final convolution
-    network = tl.layers.Conv2dLayer(network,
-                                    act=tf.identity,
-                                    shape=[1, 1, int(sf / 8), 3],
-                                    strides=[1, 1, 1, 1],
-                                    padding='SAME',
-                                    W_init=tf.contrib.layers.xavier_initializer(uniform=False),
-                                    b_init=tf.constant_initializer(value=0.0),
-                                    name='decoder/h7/conv2d')
-
-    # Final skip-connection
-    network = tl.layers.BatchNormLayer(network, is_train=training, name='decoder/h7/batch_norm')
-    network.outputs = tf.maximum(alpha * network.outputs, network.outputs, name='decoder/h7/leaky_relu')
-    network = skip_connection_layer(network, skip_layers[0], 'decoder/h7/fuse_skip_connection')
-
-    return network
-
-
-# Load weights for VGG16 encoder convolutional layers
-# Weights are from a .npy file generated with the caffe-tensorflow tool
-def load_vgg_weights(network, weight_file, session):
-    params = []
-
-    if weight_file.lower().endswith('.npy'):
-        npy = np.load(weight_file, encoding='latin1')
-        for key, val in sorted(npy.item().items()):
-            if (key[:4] == "conv"):
-                print("  Loading %s" % (key))
-                print("  weights with size %s " % str(val['weights'].shape))
-                print("  and biases with size %s " % str(val['biases'].shape))
-                params.append(val['weights'])
-                params.append(val['biases'])
-    else:
-        print('No weights in suitable .npy format found for path ', weight_file)
-
-    print('Assigning loaded weights..')
-    tl.files.assign_params(session, params, network)
-
-    return network
-
-
-# === Layers ==================================================================
-
-# Convolutional layer
-def conv_layer(input_layer, sz, str):
-    network = tl.layers.Conv2dLayer(input_layer,
-                                    act=tf.nn.relu,
-                                    shape=[3, 3, sz[0], sz[1]],
-                                    strides=[1, 1, 1, 1],
-                                    padding='SAME',
-                                    name=str)
-
-    return network
-
-
-# Max-pooling layer
-def pool_layer(input_layer, str):
-    network = tl.layers.PoolLayer(input_layer,
-                                  ksize=[1, 2, 2, 1],
-                                  strides=[1, 2, 2, 1],
-                                  padding='SAME',
-                                  pool=tf.nn.max_pool,
-                                  name=str)
-
-    return network
-
-
-# Concatenating fusion of skip-connections
-def skip_connection_layer(input_layer, skip_layer, str, training=False):
-    _, sx, sy, sf = input_layer.outputs.get_shape().as_list()
-    _, sx_, sy_, sf_ = skip_layer.outputs.get_shape().as_list()
-
-    #assert (sx_, sy_, sf_) == (sx, sy, sf)
-
-    # skip-connection domain transformation, from LDR encoder to log HDR decoder
-    # skip_layer.outputs = tf.log(tf.pow(tf.scalar_mul(1.0 / 255, skip_layer.outputs), 2.0) + 1.0 / 255.0)
-    skip_layer.outputs = tf.scalar_mul(1.0 / 255, skip_layer.outputs)
-
-    # specify weights for fusion of concatenation, so that it performs an element-wise addition
-    weights = np.zeros((1, 1, sf + sf_, sf))
-    for i in range(sf):
-        weights[0, 0, i, i] = 1
-        weights[:, :, i + sf_, i] = 1
-    add_init = tf.constant_initializer(value=weights, dtype=tf.float32)
-
-    # concatenate layers
-    network = tl.layers.ConcatLayer([input_layer, skip_layer], concat_dim=3, name='%s/skip_connection' % str)
-
-    # fuse concatenated layers using the specified weights for initialization
-    network = tl.layers.Conv2dLayer(network,
-                                    act=tf.identity,
-                                    shape=[1, 1, sf + sf_, sf],
-                                    strides=[1, 1, 1, 1],
-                                    padding='SAME',
-                                    W_init=add_init,
-                                    b_init=tf.constant_initializer(value=0.0),
-                                    name=str)
-
-    return network
-
-
-# Deconvolution layer
-def deconv_layer(input_layer, sz, str, alpha, training=False):
-    scale = 2
-
-    filter_size = (2 * scale - scale % 2)
-    num_in_channels = int(sz[3])
-    num_out_channels = int(sz[4])
-
-    network = tl.layers.UpSampling2dLayer(input_layer, (scale, scale), True, 1, False, '%s/NN_dc' % str)
-    network = tl.layers.PadLayer(network, [[0, 0], [1, 1], [1, 1], [0, 0]], "REFLECT", name='inpad')
-    # network = conv_layer(network, [num_in_channels, num_out_channels], str)
-    network = tl.layers.Conv2dLayer(network,
-                                    act=tf.nn.relu,
-                                    shape=[3, 3, num_in_channels, num_out_channels],
-                                    strides=[1, 1, 1, 1],
-                                    padding='VALID',
-                                    name=str)
-
-    # # create bilinear weights in numpy array
-    # bilinear_kernel = np.zeros([filter_size, filter_size], dtype=np.float32)
-    # scale_factor = (filter_size + 1) // 2
-    # if filter_size % 2 == 1:
-    #     center = scale_factor - 1
-    # else:
-    #     center = scale_factor - 0.5
-    # for x in range(filter_size):
-    #     for y in range(filter_size):
-    #         bilinear_kernel[x, y] = (1 - abs(x - center) / scale_factor) * \
-    #                                 (1 - abs(y - center) / scale_factor)
-    # weights = np.zeros((filter_size, filter_size, num_out_channels, num_in_channels))
-    # for i in range(num_out_channels):
-    #     weights[:, :, i, i] = bilinear_kernel
-    #
-    # init_matrix = tf.constant_initializer(value=weights, dtype=tf.float32)
-    #
-    # """network = tl.layers.DeConv2d(input_layer,
-    #                                   shape=[filter_size, filter_size, num_out_channels, num_in_channels],
-    #                                   output_shape=[sz[0], sz[1] * scale, sz[2] * scale, num_out_channels],
-    #                                   strides=[1, scale, scale, 1],
-    #                                   W_init=init_matrix,
-    #                                   padding='SAME',
-    #                                   act=tf.identity,
-    #                                   name=str)"""
-    # network = tl.layers.DeConv2d(input_layer, num_out_channels, (filter_size, filter_size), (scale, scale), 'SAME', tf.identity, W_init=init_matrix, name=str)
-
-    network = tl.layers.BatchNormLayer(network, is_train=training, name='%s/batch_norm_dc' % str)
-    network.outputs = tf.maximum(alpha * network.outputs, network.outputs, name='%s/leaky_relu_dc' % str)
-
-
-    return network
+        return y_final

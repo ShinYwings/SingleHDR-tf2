@@ -332,8 +332,6 @@ class model(Model):
         invcrf = tf.cast(invcrf, tf.float32)
         # float32
 
-        # TODO apply invcrf to "img"
-
         return invcrf
 
     def histogram_layer(self, img, max_bin):
