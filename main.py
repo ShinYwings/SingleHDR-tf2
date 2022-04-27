@@ -42,8 +42,8 @@ TRAIN_DIR = os.path.join(DATASET_DIR, "train")
 TEST_DIR = os.path.join(DATASET_DIR, "test")
 
 TRAIN_DEQ = False
-TRAIN_LIN = False
-TRAIN_HAL = True
+TRAIN_LIN = True
+TRAIN_HAL = False
 
 DEQ_PRETRAINED_DIR = None
 LIN_PRETRAINED_DIR = None
@@ -375,7 +375,9 @@ if __name__=="__main__":
         
         if module == "deq":
             EPOCHS = 47000     # overfitted on around 52.4k iter
-        
+        if module == "lin":
+            EPOCHS = 220000     # overfitted on around 52.4k iter
+
         # TODO model verification
         #########################################
         for epoch in range(EPOCHS): # ACTUALLY iteraion, NOT Epoch in this paper, 
@@ -435,7 +437,7 @@ if __name__=="__main__":
             
             ckpt.epoch.assign_add(1)
 
-            if ckpt.epoch == 1 or ckpt.epoch % 10000 == 0:
+            if ckpt.epoch == 1 or ckpt.epoch % 1000 == 0:
                 save_path =  ckpt_manager.save()
                 print("Saved checkpoint for step {}: {}".format(int(ckpt.epoch), save_path))
         #########################################
