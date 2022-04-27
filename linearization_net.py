@@ -117,58 +117,58 @@ class crfFeatureNet(Model):
 
         return tf.reduce_mean(res5, [1, 2], keepdims=False)
 
-    def overwrite_init(self, sess):
+    # def overwrite_init(self, sess):
 
-        # np_var
-        def refine_np_var(input, output_dict, curr_tag=''):
-            if type(input) is dict:
-                for key, val in input.items():
-                    if 'fc11' not in key:
-                        refine_np_var(val, output_dict, curr_tag + '/%s' % key)
-            else:
-                assert curr_tag not in output_dict
-                output_dict[curr_tag] = input
+    #     # np_var
+    #     def refine_np_var(input, output_dict, curr_tag=''):
+    #         if type(input) is dict:
+    #             for key, val in input.items():
+    #                 if 'fc11' not in key:
+    #                     refine_np_var(val, output_dict, curr_tag + '/%s' % key)
+    #         else:
+    #             assert curr_tag not in output_dict
+    #             output_dict[curr_tag] = input
 
-        np_var = {}
-        refine_np_var(
-            np.load('crf_net_v2.npy', encoding='latin1').item(),
-            np_var,
-        )
+    #     np_var = {}
+    #     refine_np_var(
+    #         np.load('crf_net_v2.npy', encoding='latin1').item(),
+    #         np_var,
+    #     )
 
-        # tf_var
-        def tf_name_2_np_name(tf_name):
-            np_name = tf_name
-            np_name = np_name.replace(':0', '')
-            np_name = np_name.replace('/BatchNorm', '')
-            np_name = np_name.replace(f'{self.scope}', '')
-            '''
-            offset = beta
-            scale = gamma
-            '''
-            np_name = np_name.replace('beta', 'offset')
-            np_name = np_name.replace('gamma', 'scale')
-            np_name = np_name.replace('moving_variance', 'variance')
-            np_name = np_name.replace('moving_mean', 'mean')
-            return np_name
+    #     # tf_var
+    #     def tf_name_2_np_name(tf_name):
+    #         np_name = tf_name
+    #         np_name = np_name.replace(':0', '')
+    #         np_name = np_name.replace('/BatchNorm', '')
+    #         np_name = np_name.replace(f'{self.scope}', '')
+    #         '''
+    #         offset = beta
+    #         scale = gamma
+    #         '''
+    #         np_name = np_name.replace('beta', 'offset')
+    #         np_name = np_name.replace('gamma', 'scale')
+    #         np_name = np_name.replace('moving_variance', 'variance')
+    #         np_name = np_name.replace('moving_mean', 'mean')
+    #         return np_name
 
-        tf_var = {tf_name_2_np_name(var.name): var for var in tf.get_collection(
-            tf.GraphKeys.GLOBAL_VARIABLES,
-            scope=self.scope,
-        )}
+    #     tf_var = {tf_name_2_np_name(var.name): var for var in tf.get_collection(
+    #         tf.GraphKeys.GLOBAL_VARIABLES,
+    #         scope=self.scope,
+    #     )}
 
-        # chk all
-        print(tf_var)
+    #     # chk all
+    #     print(tf_var)
 
-        for key, var in np_var.items():
-            print(key)
-            assert key in tf_var
+    #     for key, var in np_var.items():
+    #         print(key)
+    #         assert key in tf_var
 
-        # load all
-        for key, var in np_var.items():
-            if '/conv1/' not in key:
-                tf_var[key].load(var, sess)
+    #     # load all
+    #     for key, var in np_var.items():
+    #         if '/conv1/' not in key:
+    #             tf_var[key].load(var, sess)
 
-        return
+    #     return
 
 class AEInvcrfDecodeNet(Model):
 
@@ -197,21 +197,21 @@ class AEInvcrfDecodeNet(Model):
         return invcrf
 
     # [b, n_p]
-    def _f(self, p):  
+    # def _f(self, p):  
     
-        '''
-        m =
-        x_0^1, x_1^1
-        x_0^2, x_1^2
-        '''
-        m = []
-        for i in range(self.n_p):
-            m.append([x ** (i + 1) for x in np.linspace(0, 1, num=self.s, dtype='float64')])
-        m = tf.constant(m, dtype=tf.float64)  # [n_c, s]
-        return tf.matmul(
-            p,  # [b, n_p]
-            m,  # [n_p, s]
-        )  # [b, s]
+    #     '''
+    #     m =
+    #     x_0^1, x_1^1
+    #     x_0^2, x_1^2
+    #     '''
+    #     m = []
+    #     for i in range(self.n_p):
+    #         m.append([x ** (i + 1) for x in np.linspace(0, 1, num=self.s, dtype='float64')])
+    #     m = tf.constant(m, dtype=tf.float64)  # [n_c, s]
+    #     return tf.matmul(
+    #         p,  # [b, n_p]
+    #         m,  # [n_p, s]
+    #     )  # [b, s]
     
     # b, g0, hinv
     # [1024], [1024], [1024, 11]
@@ -338,9 +338,16 @@ class model(Model):
         # histogram branch
         tmp_list = []
         
-        for i in range(max_bin + 1):
+        _threshold = 1. / max_bin
+        condition = lambda x: tf.less(x, _threshold)
+        max_bin_sq = 2.*max_bin
+
+        for i in range(1, max_bin + 1):
             # TODO correct the formula
-            histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
+            # histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
+            # tmp_list.append(histo)
+            distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_sq))
+            histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
             tmp_list.append(histo)
 
         histogram_tensor = tf.concat(tmp_list, -1)

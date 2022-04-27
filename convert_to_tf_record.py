@@ -19,10 +19,12 @@ if not os.path.isdir(out_dir):
 
 count = 0
 cur_writing_path = os.path.join(out_dir, "train_{:d}_{:04d}.tfrecords".format(patch_stride, 0))
-writer = tf.io.TFRecordWriter(cur_writing_path, TFRECORD_OPTION)
 
 HDRs_512 = sorted(glob.glob('/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Real/HDR_gt/*.hdr'))
 LDRs_512 = sorted(glob.glob('/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Real/LDR_in/*.jpg'))
+
+# HDRs_512 = sorted(glob.glob('/home/cvnar2/Desktop/nvme/singleHDR/SingleHDR_training_data/HDR-Real/HDR_gt/*.hdr'))
+# LDRs_512 = sorted(glob.glob('/home/cvnar2/Desktop/nvme/singleHDR/SingleHDR_training_data/HDR-Real/LDR_in/*.jpg'))
 
 for i, scene_dir in enumerate(HDRs_512):
     if (i % 10 == 0):
@@ -33,9 +35,7 @@ for i, scene_dir in enumerate(HDRs_512):
     ref_HDR = cv2.imread(HDRs_512[i], -1).astype(np.float32)  # read raw values
     ref_LDR = cv2.imread(LDRs_512[i]).astype(np.float32)   # read jpg
 
-
     h, w, c = ref_HDR.shape
-
 
     def write_example(h1, h2, w1, w2):
         global count
@@ -49,11 +49,8 @@ for i, scene_dir in enumerate(HDRs_512):
                                             "train_{:d}_{:04d}.tfrecords".format(patch_stride, cur_batch_index))
             writer = tf.io.TFRecordWriter(cur_writing_path, TFRECORD_OPTION)
 
-
         ref_HDR_patch = ref_HDR[h1:h2, w1:w2, ::-1]
         ref_LDR_patch = ref_LDR[h1:h2, w1:w2, ::-1]
-
-
 
         """extreme cases filtering"""
         ref_LDR_patch_gray = cv2.cvtColor(ref_LDR_patch, cv2.COLOR_RGB2GRAY)
