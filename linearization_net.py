@@ -308,7 +308,7 @@ class model(Model):
         self.crf_feature_net = crfFeatureNet()
         self.ae_invcrf_decode_net = AEInvcrfDecodeNet()
     
-    def call(self, img, training):
+    def call(self, img, training = "training"):
         # edge branch
         edge_1 = tf.image.sobel_edges(img)
 
@@ -338,16 +338,17 @@ class model(Model):
         # histogram branch
         tmp_list = []
         
-        _threshold = 1. / max_bin
-        condition = lambda x: tf.less(x, _threshold)
-        max_bin_sq = 2.*max_bin
+        # TODO correct the formula
+        # _threshold = 1. / max_bin
+        # condition = lambda x: tf.less(x, _threshold)
+        # max_bin_sq = 2.*max_bin
+        # for i in range(1, max_bin + 1):    
+        #     distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_sq))
+        #     histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
+        #     tmp_list.append(histo)
 
-        for i in range(1, max_bin + 1):
-            # TODO correct the formula
-            # histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
-            # tmp_list.append(histo)
-            distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_sq))
-            histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
+        for i in range(max_bin + 1):
+            histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
             tmp_list.append(histo)
 
         histogram_tensor = tf.concat(tmp_list, -1)

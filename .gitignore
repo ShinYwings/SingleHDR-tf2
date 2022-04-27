@@ -133,7 +133,7 @@ dataset/
 DatasetGeneration/
 outputImg/
 tensorboard/
-deq_pretrained/
 tf_records/
 vgg16.npy
 vgg16_places365_weights.npy
+checkpoints_init_states/

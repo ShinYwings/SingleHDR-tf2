@@ -186,5 +186,5 @@ class model(Model):
 
         # Final skip-connection
         out = self.s0(x, bgr)
-
+        
         return tf.nn.relu(out)

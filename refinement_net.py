@@ -45,8 +45,10 @@ class model(Model):
         self.u3 = up(outChannels=64, kernel_size=(3,3))
         self.u2 = up(outChannels=32, kernel_size=(3,3))
         self.u1 = up(outChannels=16, kernel_size=(3,3))
-    
-    def call(self, input_images):
+
+        self.out = tf.keras.layers.Conv2D(3, kernel_size=(3,3), strides=strides, padding=padding)
+
+    def call(self, input_images, training="training"):
 
         x = tf.nn.leaky_relu(self.conv1(input_images), 0.1)
         s1 = tf.nn.leaky_relu(self.conv2(x), 0.1)
@@ -60,6 +62,7 @@ class model(Model):
         x = self.u2(x, s2)
         x = self.u1(x, s1)
 
+        x = self.out(x)
         res = tf.add(input_images[..., 0:3], x)
 
-        return res
+        return tf.nn.relu(res)

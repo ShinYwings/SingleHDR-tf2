@@ -1,54 +1,91 @@
 import logging
-
 logging.basicConfig(level=logging.INFO)
-import argparse
-import tensorflow as tf
-from tf_utils import get_tensor_shape, apply_rf
+
 import os
-import glob
-from random import shuffle
-from dequantization_net import Dequantization_net
-from linearization_net import Linearization_net
-import hallucination_net
-from refinement_net import Refinement_net
+import numpy as np
+import tensorflow as tf
+import time
+from tqdm import tqdm
 
-FLAGS = tf.app.flags.FLAGS
-epsilon = 0.001
+import utils
+import tf_utils
+# from random_tone_map import random_tone_map
+
+import dequantization_net as deq
+import linearization_net as lin
+import hallucination_net as hal
+import refinement_net as ref
+
+AUTO = tf.data.AUTOTUNE
+
+# HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
+# HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
+"""
+BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
+"""
+# Hyper parameters
+LEARNING_RATE = 1e-5
+BATCH_SIZE = 4
+THRESHOLD = 0.12
+
+EPOCHS = 1000
+IMSHAPE = (256,256,3)
+RENDERSHAPE = (64,64,3)
+
+HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
+
+CURRENT_WORKINGDIR = os.getcwd()
+DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/256_64_b32_tfrecords")
+
+TRAIN_DEQ = True
+TRAIN_LIN = True
+TRAIN_HAL = True
+TRAIN_REF = True
+
+DEQ_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/deq_pretrained_40k"
+LIN_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/lin_before_hist_fix"
+HAL_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/hal"
+REF_PRETRAINED_DIR = None
 
 
-# ---
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--batch_size', type=int, default=4)
-parser.add_argument('--it_num', type=int, default=100000)  # 500k
-parser.add_argument('--logdir_path', type=str, required=True)
-parser.add_argument('--tfrecords_path', type=str, required=True)
-parser.add_argument('--deq_ckpt', type=str, required=True)
-parser.add_argument('--lin_ckpt', type=str, required=True)
-parser.add_argument('--hal_ckpt', type=str, required=True)
-ARGS = parser.parse_args()
+def hdr_logCompression(x, validDR = 5000.):
 
+    # disentangled way
+    x = tf.math.multiply(validDR, x)
+    numerator = tf.math.log(1.+ x)
+    denominator = tf.math.log(1.+validDR)
+    output = tf.math.divide(numerator, denominator) - 1.
 
-def load_data(filename_queue):
+    return output
 
-    reader = tf.TFRecordReader()
-    _, serialized_example = reader.read(filename_queue)
-    img_features = tf.parse_single_example(
-        serialized_example,
-        features={
-            'ref_HDR': tf.FixedLenFeature([], tf.string),
-            'ref_LDR': tf.FixedLenFeature([], tf.string),
-        })
+def hdr_logDecompression(x, validDR = 5000.):
 
-    ref_HDR = tf.decode_raw(img_features['ref_HDR'], tf.float32)
-    ref_LDR = tf.decode_raw(img_features['ref_LDR'], tf.float32)
-    ref_HDR = tf.reshape(ref_HDR, [256, 256, 3])
-    ref_LDR = tf.reshape(ref_LDR, [256, 256, 3])
+    x = x + 1.
+    denominator = tf.math.log(1.+validDR)
+    x = tf.math.multiply(x, denominator)
+    x = tf.math.exp(x)
+    output = tf.math.divide(x, validDR)
+    
+    return output
+    
+def _parse_function(example_proto):
+    # Parse the input `tf.train.Example` proto using the dictionary above.
+    feature_description = {
+        'ref_HDR': tf.io.FixedLenFeature([], tf.string),
+        'ref_LDR': tf.io.FixedLenFeature([], tf.string),
+    }
+    example = tf.io.parse_single_example(example_proto, feature_description)
+
+    ref_HDR = tf.io.decode_raw(example['ref_HDR'], tf.float32)
+    ref_LDR = tf.io.decode_raw(example['ref_LDR'], tf.float32)
+    ref_HDR = tf.reshape(ref_HDR, IMSHAPE)
+    ref_LDR = tf.reshape(ref_LDR, IMSHAPE)
 
     ref_HDR = ref_HDR / (1e-6 + tf.reduce_mean(ref_HDR)) * 0.5
     ref_LDR = ref_LDR / 255.0
 
-    distortions = tf.random_uniform([2], 0, 1.0, dtype=tf.float32)
+    distortions = tf.random.uniform([2], 0, 1.0, dtype=tf.float32)
 
     # flip horizontally
     ref_HDR = tf.cond(tf.less(distortions[0], 0.5), lambda: tf.image.flip_left_right(ref_HDR), lambda: ref_HDR)
@@ -59,202 +96,232 @@ def load_data(filename_queue):
     ref_HDR = tf.image.rot90(ref_HDR, k)
     ref_LDR = tf.image.rot90(ref_LDR, k)
 
-    # TODO: channel swapping?
+    # TODO correct to HDR-Real dataset
 
-    ref_HDR_batch, ref_LDR_batch = tf.train.shuffle_batch(
-        [ref_HDR, ref_LDR],
-        batch_size=8,
-        num_threads=8,
-        capacity=256,
-        min_after_dequeue=64)
+    return ref_LDR, ref_HDR
 
-    return ref_HDR_batch, ref_LDR_batch
+def configureDataset(dirpath):
 
-tfrecord_list = glob.glob(os.path.join(ARGS.tfrecords_path, '*.tfrecords'), recursive=True)
-print(len(tfrecord_list))
-assert (tfrecord_list)
-shuffle(tfrecord_list)
-print('\n\n====================\ntfrecords list:')
-[print(f) for f in tfrecord_list]
-print('====================\n\n')
+    tfrecords_list = list()
+    a = tf.data.Dataset.list_files(os.path.join(dirpath, "*.tfrecords"), shuffle=False)
+    tfrecords_list.extend(a)
 
-with tf.device('/cpu:0'):
-    filename_queue = tf.train.string_input_producer(tfrecord_list)
-    ref_HDR_batch, ref_LDR_batch = load_data(filename_queue)
+    ds = tf.data.TFRecordDataset(filenames=tfrecords_list, num_parallel_reads=AUTO, compression_type="GZIP")
+    ds = ds.map(_parse_function, num_parallel_calls=AUTO)
 
+    # if train:
+    #     ds = ds.shuffle(buffer_size = 10000).batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
+    # else:
+    #     ds = ds.batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
+    # deq_ds, lin_ds = ds, ds
+    
+    ds  = ds.batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
 
+    return ds
+        
+if __name__=="__main__":
 
+    # gpus = tf.config.experimental.list_physical_devices('GPU')
+    # if gpus:
+    #     for gpu in gpus:
+    #         tf.config.experimental.set_memory_growth(gpu, True)
+    
+    """Path for tf.summary.FileWriter and to store model checkpoints"""
+    root_dir=os.getcwd()
+    
+    """Init Dataset"""
+    # train_ds = configureDataset(TRAIN_DIR, train=True)
+    # test_ds  = configureDataset(DATASET_DIR, train=False)
+    
+    ds  = configureDataset(DATASET_DIR)
 
-# ---
+    """CheckPoint Create"""
+    checkpoint_path = utils.createNewDir(root_dir, "checkpoints")
 
+    _deq  = deq.model()
+    _lin = lin.model()
+    _hal = hal.model()
+    _ref = ref.model()
 
-# --- graph
+    """"Create Output Image Directory"""
+    if(TRAIN_DEQ):
+        # train_summary_writer_deq, test_summary_writer_deq, logdir_deq = tf_utils.createDirectories(root_dir, name="deq", dir="tensorboard")
+        # print(f'tensorboard --logdir={logdir_deq}')
+        # train_outImgDir_deq, test_outImgDir_deq = tf_utils.createDirectories(root_dir, name="deq", dir="outputImg")
 
-_clip = lambda x: tf.clip_by_value(x, 0, 1)
+        """Model initialization"""
+        optimizer_deq, train_loss_deq, test_loss_deq = tf_utils.model_initialization("deq", LEARNING_RATE) 
 
+        ckpt_deq, ckpt_manager_deq = tf_utils.checkpoint_initialization(
+                                        model_name="deq",
+                                        pretrained_dir=DEQ_PRETRAINED_DIR,
+                                        checkpoint_path=checkpoint_path,
+                                        model=_deq,
+                                        optimizer=optimizer_deq)
+    
+    if(TRAIN_LIN):
+        # train_summary_writer_lin, test_summary_writer_lin, logdir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="tensorboard")
+        # print(f'tensorboard --logdir={logdir_lin}')
+        # train_outImgDir_lin, test_outImgDir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="outputImg")
+        
+        """Model initialization"""
+        optimizer_lin, train_loss_lin, test_loss_lin = tf_utils.model_initialization("lin", LEARNING_RATE)
 
-def fix_quantize(
-        img,  # [b, h, w, c]
-        is_training,
-):
-    b, h, w, c, = get_tensor_shape(img)
+        ckpt_lin, ckpt_manager_lin = tf_utils.checkpoint_initialization(
+                                        model_name="lin",
+                                        pretrained_dir=LIN_PRETRAINED_DIR,
+                                        checkpoint_path=checkpoint_path,
+                                        model=_lin,
+                                        optimizer=optimizer_lin)
+    if(TRAIN_HAL):
+        # train_summary_writer_hal, test_summary_writer_hal, logdir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="tensorboard")
+        # print(f'tensorboard --logdir={logdir_hal}')
+        # train_outImgDir_hal, test_outImgDir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="outputImg")
 
-    const_bit = tf.constant(8.0, tf.float32, [1, 1, 1, 1])
+        """Model initialization"""
+        optimizer_hal, train_loss_hal, test_loss_hal = tf_utils.model_initialization("hal", LEARNING_RATE)
+    
+        ckpt_hal, ckpt_manager_hal = tf_utils.checkpoint_initialization(
+                                        model_name="hal",
+                                        pretrained_dir=HAL_PRETRAINED_DIR,
+                                        checkpoint_path=checkpoint_path,
+                                        model=_hal,
+                                        optimizer=optimizer_hal)
+    
+    if(TRAIN_REF):
+        train_summary_writer_ref, test_summary_writer_ref, logdir_ref = tf_utils.createDirectories(root_dir, name="ref", dir="tensorboard")
+        print(f'tensorboard --logdir={logdir_ref}')
 
-    bit = const_bit
-    s = (2 ** bit) - 1
+        """Model initialization"""
+        optimizer_ref, train_loss_ref, test_loss_ref = tf_utils.model_initialization("ref", LEARNING_RATE) 
 
-    img = _clip(img)
-    img = tf.round(s * img) / s
-    img = _clip(img)
+        ckpt_ref, ckpt_manager_ref = tf_utils.checkpoint_initialization(
+                                        model_name="ref",
+                                        pretrained_dir=REF_PRETRAINED_DIR,
+                                        checkpoint_path=checkpoint_path,
+                                        model=_ref,
+                                        optimizer=optimizer_ref)
 
-    return img
+    """
+    Check out the dataset that properly work
+    """
+    # import matplotlib.pyplot as plt
+    # plt.figure(figsize=(20,20))
+    # for i, (image, means) in enumerate(train_ds.take(25)):
+    #     ax = plt.subplot(5,5,i+1)
+    #     plt.imshow(image[i])
+    #     plt.axis('off')
+    # plt.show()
+    
+    with tf.device('/GPU:0'):
 
+        _clip = lambda x: tf.clip_by_value(x, 0, 1)
+            
+        ##############
+        # Refinement #
+        ##############
+        @tf.function
+        def train_step(ldr, hdr):
+            
+            denominator = 1 / tf.math.log(1.0 + 10.0)
 
-def log10(x):
-    numerator = tf.log(x)
-    denominator = tf.log(tf.constant(10, dtype=numerator.dtype))
-    return numerator / denominator
+            with tf.GradientTape() as tape:
+                
+                # Dequantization
+                pred = _deq(ldr, training= True)
+                C_pred = _clip(pred)
 
+                # Linearization
+                pred_invcrf = _lin(C_pred, training= True)
+                B_pred = tf_utils.apply_rf(C_pred, pred_invcrf)
 
-def build_graph(
-        ldr,  # [b, h, w, c]
-        hdr,  # [b, h, w, c]
-        is_training,
-):
-    b, h, w, c, = get_tensor_shape(ldr)
-    b, h, w, c, = get_tensor_shape(hdr)
+                # Hallucination
+                alpha = tf.reduce_max(B_pred, axis=[3])
+                alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + THRESHOLD) / THRESHOLD)
+                alpha = tf.reshape(alpha, [-1, tf.shape(B_pred)[1], tf.shape(B_pred)[2], 1])
+                alpha = tf.tile(alpha, [1, 1, 1, 3])
 
-    # Dequantization-Net
-    with tf.variable_scope("Dequantization_Net"):
-        dequantization_model = Dequantization_net(is_train=True)
-        C_pred = _clip(dequantization_model.inference(ldr))
+                hal_res = _hal(B_pred, training= True)
+                A_pred = (B_pred) + alpha * hal_res
 
-    # Linearization-Net
-    lin_net = Linearization_net()
-    pred_invcrf = lin_net.get_output(C_pred, True)
-    B_pred = apply_rf(C_pred, pred_invcrf)
+                # Refinement
+                refinement_output = _ref(tf.concat([A_pred, B_pred, C_pred], -1), training=True)
+                refinement_output = refinement_output / (1e-6 + tf.reduce_mean(refinement_output, axis=[1, 2, 3], keepdims=True)) * 0.5
+                refinement_output_gamma = tf.math.log(1.0 + 10.0 * refinement_output) * denominator
+                hdr_gamma = tf.math.log(1.0 + 10.0 * hdr) * denominator
+                loss = tf.reduce_mean(tf.abs(refinement_output_gamma - hdr_gamma))
 
-    # Hallucination-Net
-    thr = 0.12
-    alpha = tf.reduce_max(B_pred, reduction_indices=[3])
-    alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + thr) / thr)
-    alpha = tf.reshape(alpha, [-1, tf.shape(B_pred)[1], tf.shape(B_pred)[2], 1])
-    alpha = tf.tile(alpha, [1, 1, 1, 3])
-    with tf.variable_scope("Hallucination_Net"):
-        net_test, vgg16_conv_layers_test = hallucination_net.model(B_pred, ARGS.batch_size, True)
-        y_predict_test = net_test.outputs
-        y_predict_test = tf.nn.relu(y_predict_test)
-        A_pred = (B_pred) + alpha * y_predict_test
+                """compare with DLH output (without refinement net)"""
+                # A_pred_output = A_pred / (1e-6 + tf.reduce_mean(A_pred, axis=[1, 2, 3], keepdims=True)) * 0.5
+                # A_pred_output_gamma = tf.math.log(1.0 + 10.0 * A_pred_output) * denominator
+                # A_pred_loss = tf.reduce_mean(tf.abs(A_pred_output_gamma - hdr_gamma))
+            
+            gradients_deq, gradients_lin, gradients_hal, gradients_ref = tape.gradient(loss, [_deq.trainable_variables, _lin.trainable_variables, _hal.trainable_variables, _ref.trainable_variables] )
+            
+            if TRAIN_DEQ:
+                optimizer_deq.apply_gradients(zip(gradients_deq, _deq.trainable_variables))
+            if TRAIN_LIN:
+                optimizer_lin.apply_gradients(zip(gradients_lin, _lin.trainable_variables))
+            if TRAIN_HAL:
+                optimizer_hal.apply_gradients(zip(gradients_hal, _hal.trainable_variables))
+            
+            optimizer_ref.apply_gradients(zip(gradients_ref, _ref.trainable_variables))
 
-    t_vars = tf.get_collection(tf.GraphKeys.VARIABLES)
-    print('all layers:')
-    for var in t_vars: print(var.name)
+            train_loss_ref(loss)
 
-    # Refinement-Net
-    with tf.variable_scope("Refinement_Net"):
-        refinement_model = Refinement_net(is_train=is_training)
-        refinement_output = tf.nn.relu(refinement_model.inference(tf.concat([A_pred, B_pred, C_pred], -1)))
+            # return [A_pred_loss, C_pred, B_pred, A_pred, refinement_output]
+            return [C_pred, B_pred, A_pred, refinement_output]
 
-    _log = lambda x: tf.log(x + 1.0 / 255.0)
+        @tf.function
+        def test_step(gt):
+            
+            pred = _deq(gt, training= False)
+            l1_loss = tf.reduce_mean(tf.square(pred - gt))
+            test_loss_ref(l1_loss)
+    
+    ckpts = [ckpt_deq, ckpt_lin, ckpt_hal, ckpt_ref]
+    ckpt_managers = [ckpt_manager_deq, ckpt_manager_lin, ckpt_manager_hal, ckpt_manager_ref]
 
-    refinement_output = refinement_output / (1e-6 + tf.reduce_mean(refinement_output, axis=[1, 2, 3], keepdims=True)) * 0.5
-    refinement_output_gamma = tf.log(1.0 + 10.0 * refinement_output) / tf.log(1.0 + 10.0)
-    hdr_gamma = tf.log(1.0 + 10.0 * hdr) / tf.log(1.0 + 10.0)
-    loss = tf.reduce_mean(tf.abs(refinement_output_gamma - hdr_gamma))
+    print("시작")
+    
+    for epoch in range(1, EPOCHS+1):
 
+        start = time.perf_counter()
 
-    """compare with DLH output (without refinement net)"""
-    A_pred_output = A_pred / (1e-6 + tf.reduce_mean(A_pred, axis=[1, 2, 3], keepdims=True)) * 0.5
-    A_pred_output_gamma = tf.log(1.0 + 10.0 * A_pred_output) / tf.log(1.0 + 10.0)
-    A_pred_loss = tf.reduce_mean(tf.abs(A_pred_output_gamma - hdr_gamma))
+        train_loss_ref.reset_states()
 
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_ops):
-        train_op = tf.train.AdamOptimizer(learning_rate=0.00001).minimize(loss)
+        for (ldr, hdr) in tqdm(ds):
+            
+            pred = train_step(ldr, hdr)
 
-    tf.summary.scalar('loss', tf.reduce_mean(loss))
-    tf.summary.scalar('A_pred_loss', tf.reduce_mean(A_pred_loss))
-    tf.summary.image('hdr', hdr)
-    tf.summary.image('ldr', ldr)
-    tf.summary.image('C_pred', C_pred)
-    tf.summary.image('B_pred', B_pred)
-    tf.summary.image('A_pred', A_pred)
-    tf.summary.image('refinement_output', refinement_output)
-    tf.summary.histogram('hdr_histo', hdr)
-    tf.summary.histogram('refinement_output_histo', refinement_output)
+        with train_summary_writer_ref.as_default():
+            
+            C_pred, B_pred, A_pred, refinement_output = pred
 
-    return train_op, loss
+            tf.summary.scalar('loss', train_loss_ref.result(), step=epoch)
+            # tf.summary.scalar('A_pred_loss', tf.reduce_mean(A_pred_loss), step=epoch+1)
+            tf.summary.image('hdr', hdr, step=epoch)
+            tf.summary.image('ldr', ldr, step=epoch)
+            tf.summary.image('C_pred', C_pred, step=epoch)
+            tf.summary.image('B_pred', B_pred, step=epoch)
+            tf.summary.image('A_pred', A_pred, step=epoch)
+            tf.summary.image('refinement_output', refinement_output, step=epoch)
+            
+            tf.summary.histogram('hdr_histo', hdr, step=epoch)
+            tf.summary.histogram('refinement_output_histo', refinement_output, step=epoch)
 
+        print(f'IN ref, epoch: {epoch}, Train Loss: {train_loss_ref.result()}')
 
-b, h, w, c = ARGS.batch_size, 512, 512, 3
+        print(f"Spends time : {time.perf_counter() - start} seconds in Epoch number {epoch}")
+        
+        for ckpt in ckpts:
+            ckpt.epoch.assign_add(1)
+        # ckpt_lin.epoch.assign_add(1)
+        # ckpt_hal.epoch.assign_add(1)
+        # ckpt_ref.epoch.assign_add(1)
 
-is_training = tf.placeholder(tf.bool)
+        for ckpt_manager in ckpt_managers:
+            save_path =  ckpt_manager.save()
+            print(f"Saved checkpoint for step {epoch}: {save_path}")
 
-train_op, loss = build_graph(ref_LDR_batch, ref_HDR_batch, is_training)
-saver = tf.train.Saver(tf.all_variables(), max_to_keep=50)
-
-
-
-# ---
-
-sess = tf.Session()
-coord = tf.train.Coordinator()
-threads = tf.train.start_queue_runners(sess, coord=coord)
-sess.run(tf.global_variables_initializer())
-
-total_parameters = 0
-for variable in tf.trainable_variables():
-    if 'Refinement_Net' in variable.name:
-    # shape is an array of tf.Dimension
-        shape = variable.get_shape()
-        print(shape)
-        print(len(shape))
-        variable_parameters = 1
-        for dim in shape:
-            print(dim)
-            variable_parameters *= dim.value
-        print(variable_parameters)
-        total_parameters += variable_parameters
-print(total_parameters)
-
-restorer1 = tf.train.Saver(
-    var_list=[var for var in tf.get_collection(tf.GraphKeys.VARIABLES) if 'Dequantization_Net' in var.name])
-restorer1.restore(sess, ARGS.deq_ckpt)
-
-restorer2 = tf.train.Saver(
-    var_list=[var for var in tf.get_collection(tf.GraphKeys.VARIABLES) if 'crf_feature_net' in var.name or 'ae_invcrf_' in var.name])
-restorer2.restore(sess, ARGS.lin_ckpt)
-
-restorer3 = tf.train.Saver(
-    var_list=[var for var in tf.get_collection(tf.GraphKeys.VARIABLES) if 'Hallucination_Net' in var.name])
-restorer3.restore(sess, ARGS.hal_ckpt)
-
-
-
-# hallucination_net.load_vgg_weights(vgg16_conv_layers, 'vgg16_places365_weights.npy', sess)
-
-summary = tf.summary.merge_all()
-summary_writer = tf.summary.FileWriter(
-    os.path.join(ARGS.logdir_path, 'summary'),
-    sess.graph,
-)
-
-
-
-for it in range(ARGS.it_num):
-    print(it)
-    if it == 0 or it % 10000 == 9999:
-        print('start save')
-        checkpoint_path = os.path.join(ARGS.logdir_path, 'model.ckpt')
-        saver.save(sess, checkpoint_path, global_step=it)
-        # tl.files.save_npz(net.all_params, name=os.path.join(ARGS.logdir_path, 'model'+str(it)+'.npz'), sess=sess)
-        print('finish save')
-    _, summary_val = sess.run([train_op, summary], {is_training: True})
-    if it == 0 or it % 10000 == 9999:
-        summary_writer.add_summary(summary_val, it)
-        logging.info('test')
-
-
-coord.request_stop()
-coord.join(threads)
+    print("끝")
