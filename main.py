@@ -17,10 +17,12 @@ import dequantization_net as deq
 import linearization_net as lin
 import hallucination_net as hal
 
+from vgg16 import Vgg16
+
 AUTO = tf.data.AUTOTUNE
 
-# HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
-HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
+HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
+# HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
 """
 BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
 """
@@ -40,8 +42,8 @@ TRAIN_DIR = os.path.join(DATASET_DIR, "train")
 TEST_DIR = os.path.join(DATASET_DIR, "test")
 
 TRAIN_DEQ = False
-TRAIN_LIN = True
-TRAIN_HAL = False
+TRAIN_LIN = False
+TRAIN_HAL = True
 
 DEQ_PRETRAINED_DIR = None
 LIN_PRETRAINED_DIR = None
@@ -67,7 +69,7 @@ def hdr_logDecompression(x, validDR = 5000.):
     
     return output
 
-def _tone_mapping(module, hdr, crf, t):
+def _preprocessing(module, hdr, crf, t):
     b, h, w, c, = tf_utils.get_tensor_shape(hdr)
     b, k, = tf_utils.get_tensor_shape(crf)
     b, = tf_utils.get_tensor_shape(t)
@@ -120,7 +122,7 @@ def _tone_mapping(module, hdr, crf, t):
         return [ldr, clipped_hdr_t, loss_mask]
 
     elif module == "hal":
-        return
+        return [_hdr_t, clipped_hdr_t, loss_mask]
 
     else:
         exit(0)
@@ -185,7 +187,9 @@ if __name__=="__main__":
     # TODO
     _deq  = deq.model()
     _lin = lin.model()
-    # _hal = hal.model()
+    _hal = hal.model()
+    vgg = Vgg16('vgg16.npy')
+    vgg2 = Vgg16('vgg16.npy')
 
     """"Create Output Image Directory"""
     if(TRAIN_DEQ):
@@ -218,20 +222,20 @@ if __name__=="__main__":
                                         checkpoint_path=checkpoint_path,
                                         model=_lin,
                                         optimizer=optimizer_lin)
-    # if(TRAIN_HAL):
-    #     train_summary_writer_hal, test_summary_writer_hal, logdir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="tensorboard")
-    #     print('tensorboard --logdir={}'.format(logdir_hal))
-    #    # train_outImgDir_hal, test_outImgDir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="outputImg")
+    if(TRAIN_HAL):
+        train_summary_writer_hal, test_summary_writer_hal, logdir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="tensorboard")
+        print('tensorboard --logdir={}'.format(logdir_hal))
+        # train_outImgDir_hal, test_outImgDir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="outputImg")
 
-    #     """Model initialization"""
-    #     optimizer_hal, train_loss_hal, test_loss_hal = tf_utils.model_initialization("hal", LEARNING_RATE)
+        """Model initialization"""
+        optimizer_hal, train_loss_hal, test_loss_hal = tf_utils.model_initialization("hal", LEARNING_RATE)
     
-    #     ckpt_hal, ckpt_manager_hal = tf_utils.checkpoint_initialization(
-    #                                     model_name="hal",
-    #                                     pretrained_dir=HAL_PRETRAINED_DIR,
-    #                                     checkpoint_path=checkpoint_path,
-    #                                     model=_hal,
-    #                                     optimizer=optimizer_hal)
+        ckpt_hal, ckpt_manager_hal = tf_utils.checkpoint_initialization(
+                                        model_name="hal",
+                                        pretrained_dir=HAL_PRETRAINED_DIR,
+                                        checkpoint_path=checkpoint_path,
+                                        model=_hal,
+                                        optimizer=optimizer_hal)
 
     """
     Check out the dataset that properly work
@@ -258,14 +262,11 @@ if __name__=="__main__":
                 pred = _deq(jpeg_img_float, training= True)
                 pred = _clip(pred)
                 loss = tf_utils.get_l2_loss_with_mask(pred, ldr)
-                # loss = tf_utils.get_l2_loss(pred, ldr)
-                mask_loss = tf.reduce_mean(tf.multiply(loss,loss_mask))
+                deq_loss = tf.reduce_mean(tf.multiply(loss,loss_mask))
             
-            # TODO reduce_mean or not?
-            # gradients_deq = deq_tape.gradient(tf.reduce_mean(loss*loss_mask), _deq.trainable_variables)
-            gradients_deq = deq_tape.gradient(mask_loss, _deq.trainable_variables)
+            gradients_deq = deq_tape.gradient(deq_loss, _deq.trainable_variables)
             optimizer_deq.apply_gradients(zip(gradients_deq, _deq.trainable_variables))
-            train_loss_deq(mask_loss)
+            train_loss_deq(deq_loss)
 
             return [pred]
 
@@ -288,13 +289,14 @@ if __name__=="__main__":
                 pred_lin_ldr = tf_utils.apply_rf(ldr, pred_invcrf)
                 crf_loss = tf.reduce_mean(tf.square(pred_invcrf - invcrf), axis=1, keepdims=True)
                 loss = tf_utils.get_l2_loss_with_mask(pred_lin_ldr, clipped_hdr_t)
-                mask_loss = tf.reduce_mean(tf.multiply(tf.add(loss, 0.1*crf_loss),loss_mask))
+                lin_loss = tf.reduce_mean(tf.multiply(tf.add(loss, 0.1*crf_loss),loss_mask))
             
-            gradients_lin = lin_tape.gradient(mask_loss, _lin.trainable_variables)
+            gradients_lin = lin_tape.gradient(lin_loss, _lin.trainable_variables)
             optimizer_lin.apply_gradients(zip(gradients_lin, _lin.trainable_variables))
-            train_loss_lin(mask_loss)
+            train_loss_lin(lin_loss)
 
             return [pred_lin_ldr, tf.reduce_mean(crf_loss)]
+
         @tf.function
         def lin_test_step(gt):
             
@@ -305,23 +307,54 @@ if __name__=="__main__":
         ##################
         # Hallucination  #
         ##################
-        # @tf.function
-        # def hal_train_step(gt):
+        @tf.function
+        def hal_train_step(ds):
 
-        #     with tf.GradientTape() as hal_tape:
-        #         pred = _hal(gt, training= True)
-        #         l1_loss = tf.reduce_mean(tf.abs(pred - gt))
-            
-        #     gradients_hal = hal_tape.gradient(l1_loss, _hal.trainable_variables)
-        #     optimizer_hal.apply_gradients(zip(gradients_hal, _hal.trainable_variables))
-        #     train_loss_hal(l1_loss)
+            hdr_t, clipped_hdr_t, loss_mask = ds
 
-        # @tf.function
-        # def hal_test_step(gt):
+            # Equivalent to "get_final(network, x_in)"
+            thr = 0.12
+            alpha = tf.reduce_max(clipped_hdr_t, axis=[3])
+            alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + thr) / thr)
+            alpha = tf.reshape(alpha, [-1, tf.shape(clipped_hdr_t)[1], tf.shape(clipped_hdr_t)[2], 1])
+            alpha = tf.tile(alpha, [1, 1, 1, 3])
+
+            with tf.GradientTape() as hal_tape:
+                pred = _hal(clipped_hdr_t, training= True)
+
+                y_final = (clipped_hdr_t) + alpha * pred
             
-        #     pred = _hal(gt, training= False)
-        #     l1_loss = tf.reduce_mean(tf.abs(pred - gt))
-        #     test_loss_hal(l1_loss)
+                vgg_pool1, vgg_pool2, vgg_pool3 = vgg(tf.math.log(1.0+10.0*y_final)/tf.math.log(1.0+10.0))
+                vgg2_pool1, vgg2_pool2, vgg2_pool3 = vgg2(tf.math.log(1.0+10.0*hdr_t)/tf.math.log(1.0+10.0))
+
+                perceptual_loss = tf.reduce_mean(tf.abs((vgg_pool1 - vgg2_pool1)), axis=[1, 2, 3], keepdims=True)
+                perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool2 - vgg2_pool2)), axis=[1, 2, 3], keepdims=True)
+                perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool3 - vgg2_pool3)), axis=[1, 2, 3], keepdims=True)
+
+                y_final_gamma = tf.math.log(1.0+10.0*y_final)/tf.math.log(1.0+10.0)
+                hdr_t_gamma = tf.math.log(1.0+10.0*hdr_t)/tf.math.log(1.0+10.0)
+
+                loss = tf.reduce_mean(tf.abs(y_final_gamma - hdr_t_gamma), axis=[1, 2, 3], keepdims=True)
+                y_final_gamma_pad_x = tf.pad(y_final_gamma, [[0, 0], [0, 1], [0, 0], [0, 0]], 'SYMMETRIC')
+                y_final_gamma_pad_y = tf.pad(y_final_gamma, [[0, 0], [0, 0], [0, 1], [0, 0]], 'SYMMETRIC')
+                tv_loss_x = tf.reduce_mean(tf.abs(y_final_gamma_pad_x[:, 1:] - y_final_gamma_pad_x[:, :-1]))
+                tv_loss_y = tf.reduce_mean(tf.abs(y_final_gamma_pad_y[:, :, 1:] - y_final_gamma_pad_y[:, :, :-1]))
+                tv_loss = tv_loss_x + tv_loss_y
+
+                hal_loss = tf.reduce_mean((loss + 0.001 * perceptual_loss + 0.1 * tv_loss)*loss_mask)
+
+            gradients_hal = hal_tape.gradient(hal_loss, _hal.trainable_variables)
+            optimizer_hal.apply_gradients(zip(gradients_hal, _hal.trainable_variables))
+            train_loss_hal(hal_loss)
+
+            return [pred, y_final, alpha]
+
+        @tf.function
+        def hal_test_step(gt):
+            
+            pred = _hal(gt, training= False)
+            l1_loss = tf.reduce_mean(tf.abs(pred - gt))
+            test_loss_hal(l1_loss)
     
     def train(module="module",
                 train_step="train_step", test_step="test_step",
@@ -332,6 +365,8 @@ if __name__=="__main__":
                 ckpt = "ckpt",
                 ckpt_manager = "ckpt_manager"):
 
+        global EPOCHS
+        
         dataset_reader = RandDatasetReader(get_train_dataset(HDR_PREFIX), BATCH_SIZE)
         
         # print("hdr len : ", hdr.__len__() , "   hdr shape : ", np.shape(hdr))
@@ -351,7 +386,7 @@ if __name__=="__main__":
 
             hdr_val, crf_val, invcrf_val, t_val = dataset_reader.read_batch_data()
 
-            preprocessed_dataset = tf.py_function(_tone_mapping, [module, hdr_val, crf_val, t_val], [tf.float32, tf.float32, tf.float32])
+            preprocessed_dataset = tf.py_function(_preprocessing, [module, hdr_val, crf_val, t_val], [tf.float32, tf.float32, tf.float32])
             
             if module == "lin":
                 preprocessed_dataset.append(invcrf_val)
@@ -359,23 +394,37 @@ if __name__=="__main__":
             pred = train_step(preprocessed_dataset)
 
             with train_summary_writer.as_default():
-
-                ldr       = preprocessed_dataset[0]
-                loss_mask = preprocessed_dataset[2]
-
+                
                 tf.summary.scalar('loss', train_loss.result(), step=epoch+1)
                 
-                tf.summary.image('ldr', ldr, step=epoch+1)
-
                 if module == "deq":
-                    tf.summary.image('jpeg_img_float', preprocessed_dataset[1], step=epoch+1)
+                    ldr            = preprocessed_dataset[0]
+                    jpeg_img_float = preprocessed_dataset[1]
+                    tf.summary.image('ldr', ldr, step=epoch+1)
+                    tf.summary.image('jpeg_img_float', jpeg_img_float, step=epoch+1)
                     tf.summary.image('pred', pred[0], step=epoch+1)
 
                 if module == "lin":
+                    ldr           = preprocessed_dataset[0]
+                    clipped_hdr_t = preprocessed_dataset[1]
+                    tf.summary.image('ldr', ldr, step=epoch+1)
                     tf.summary.image('pred_lin_ldr', pred[0], step=epoch+1)
                     tf.summary.scalar('crf_loss', pred[1], step=epoch+1)
-                    tf.summary.image('clipped_hdr_t', preprocessed_dataset[1], step=epoch+1)
+                    tf.summary.image('clipped_hdr_t', clipped_hdr_t, step=epoch+1)
                 
+                if module == "hal":
+                    _hdr_t        = preprocessed_dataset[0]
+                    clipped_hdr_t = preprocessed_dataset[1]
+                    tf.summary.image('hdr_t', _hdr_t, step=epoch+1)
+                    tf.summary.image('y', pred[1], step=epoch+1)
+                    tf.summary.image('clipped_hdr_t', clipped_hdr_t, step=epoch+1)
+                    tf.summary.image('alpha', pred[2], step=epoch+1)
+                    tf.summary.image('y_predict', pred[0], step=epoch+1)
+                    tf.summary.image('log_hdr_t', tf.math.log(1.0+10.0*_hdr_t)/tf.math.log(1.0+10.0), step=epoch+1)
+                    tf.summary.image('log_y', tf.math.log(1.0+10.0*pred[1])/tf.math.log(1.0+10.0), step=epoch+1)
+                    tf.summary.image('log_clipped_hdr_t', tf.math.log(1.0+10.0*clipped_hdr_t)/tf.math.log(1.0+10.0), step=epoch+1)
+
+                loss_mask = preprocessed_dataset[2]
                 tf.summary.scalar('loss_mask 0', tf.squeeze(loss_mask[0]), step=epoch+1)
                 tf.summary.scalar('loss_mask 1', tf.squeeze(loss_mask[1]), step=epoch+1)
                 tf.summary.scalar('loss_mask 2', tf.squeeze(loss_mask[2]), step=epoch+1)
@@ -447,117 +496,14 @@ if __name__=="__main__":
                 ckpt = ckpt_lin,
                 ckpt_manager = ckpt_manager_lin)
     
-    # if TRAIN_HAL:
-    #     train(module="hal",
-    #             train_step=hal_train_step, test_step=hal_test_step,  
-    #             train_loss=train_loss_hal, test_loss=test_loss_hal,
-    #             train_ds = train_ds, test_ds = test_ds,
-    #             train_summary_writer = train_summary_writer_hal,
-    #             test_summary_writer = test_summary_writer_hal,
-    #             ckpt = ckpt_hal,
-    #             ckpt_manager = ckpt_manager_hal)
+    if TRAIN_HAL:
+        train(module="hal",
+                train_step=hal_train_step, test_step=hal_test_step,  
+                train_loss=train_loss_hal, test_loss=test_loss_hal,
+                # train_ds = train_ds, test_ds = test_ds,
+                train_summary_writer = train_summary_writer_hal,
+                test_summary_writer = test_summary_writer_hal,
+                ckpt = ckpt_hal,
+                ckpt_manager = ckpt_manager_hal)
     
     print("끝")
-
-
-    # if(TRAIN_DEQ):
-
-    #     for epoch in range(EPOCHS):
-
-    #         start = time.perf_counter()
-
-    #         train_loss_deq.reset_states()
-    #         test_loss_deq.reset_states()
-            
-    #         for step, (hdrs) in enumerate(tqdm(train_ds)):
-    #             deq_train_step(hdrs)
-
-    #         with train_summary_writer_deq.as_default():
-    #             tf.summary.scalar('loss', train_loss_deq.result(), step=epoch+1)
-            
-    #         for step, (hdrs) in enumerate(tqdm(test_ds)):
-                
-    #             outImg = deq_test_step(hdrs)
-
-    #         with test_summary_writer_deq.as_default():
-    #             tf.summary.scalar('loss', test_loss_deq.result(), step=epoch+1)
-
-    #         print('Epoch: {}, Loss: {}, Test Loss: {}'.format(epoch+1, train_loss_deq.result(), test_loss_deq.result()))
-        
-    #         print("Spends time : {} seconds in Epoch number {}".format(time.perf_counter() - start,epoch+1))
-
-    #         ckpt_deq.epoch.assign_add(1)
-
-    #         if int(ckpt_deq.epoch) % 5 == 0:
-    #             save_path =  ckpt_manager_deq.save()
-    #             print("Saved checkpoint for step {}: {}".format(int(ckpt_deq.epoch), save_path))
-        
-    #     if(TRAIN_LIN):
-        
-    #         for step, (hdrs) in enumerate(tqdm(train_ds)):
-    #             lin_train_step(hdrs)
-
-    #         with train_summary_writer_lin.as_default():
-    #             tf.summary.scalar('loss', train_loss_lin.result(), step=epoch+1)
-            
-    #         for step, (hdrs) in enumerate(tqdm(test_ds)):
-                
-    #             outImg = lin_test_step(hdrs)
-
-    #         with test_summary_writer_lin.as_default():
-    #             tf.summary.scalar('loss', test_loss_lin.result(), step=epoch+1)
-
-    #         print('Epoch: {}, Loss: {}, Test Loss: {}'.format(epoch+1, train_loss_lin.result(), test_loss_lin.result()))
-        
-    #         print("Spends time : {} seconds in Epoch number {}".format(time.perf_counter() - start,epoch+1))
-
-    #         ckpt_lin.epoch.assign_add(1)
-
-    #         if int(ckpt_lin.epoch) % 5 == 0:
-    #             save_path =  ckpt_manager_lin.save()
-    #             print("Saved checkpoint for step {}: {}".format(int(ckpt_lin.epoch), save_path))
-        
-    #     if(TRAIN_HAL):
-        
-    #         for step, (hdrs) in enumerate(tqdm(train_ds)):
-    #             hal_train_step(hdrs)
-
-    #         with train_summary_writer_hal.as_default():
-    #             tf.summary.scalar('loss', train_loss_hal.result(), step=epoch+1)
-            
-    #         for step, (hdrs) in enumerate(tqdm(test_ds)):
-                
-    #             outImg = hal_test_step(hdrs)
-
-    #         with test_summary_writer_hal.as_default():
-    #             tf.summary.scalar('loss', test_loss_hal.result(), step=epoch+1)
-
-    #         print('Epoch: {}, Loss: {}, Test Loss: {}'.format(epoch+1, train_loss_hal.result(), test_loss_hal.result()))
-        
-    #         print("Spends time : {} seconds in Epoch number {}".format(time.perf_counter() - start,epoch+1))
-
-    #         ckpt_hal.epoch.assign_add(1)
-
-    #         if int(ckpt_hal.epoch) % 5 == 0:
-    #             save_path =  ckpt_manager_hal.save()
-    #             print("Saved checkpoint for step {}: {}".format(int(ckpt_hal.epoch), save_path))
-
-
-
-    ##############################################
-
-
-
-
-    # if isFirst:
-    #     isFirst = False
-    #     groundtruth_dir = utils.createNewDir(test_outImgDir_deq, "groundTruth")
-        
-    #     for i in range(hdrs.get_shape()[0]):
-    #         utils.writeHDR(hdrs[i].numpy(), "{}/{}_gt.{}".format(groundtruth_dir,i,HDR_EXTENSION), hdrs.get_shape()[1:3])
-
-    # if (epoch+1) % 10 == 0:
-    #     outHDR = tf_utils.hdr_logDecompression(outImg)
-    #     epoch_dir = utils.createNewDir(test_outImgDir_deq, "{}Epoch".format(epoch+1))
-    #     for i in range(outHDR.get_shape()[0]):
-    #         utils.writeHDR(outHDR[i].numpy(), "{}/{}.{}".format(epoch_dir,i,HDR_EXTENSION), outHDR.get_shape()[1:3])

@@ -4,6 +4,7 @@ import os
 import glob
 import cv2
 
+TFRECORD_OPTION = tf.io.TFRecordOptions(compression_type="GZIP")
 
 def bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
@@ -18,14 +19,14 @@ if not os.path.isdir(out_dir):
 
 count = 0
 cur_writing_path = os.path.join(out_dir, "train_{:d}_{:04d}.tfrecords".format(patch_stride, 0))
-writer = tf.python_io.TFRecordWriter(cur_writing_path)
+writer = tf.io.TFRecordWriter(cur_writing_path, TFRECORD_OPTION)
 
-HDRs_512 = sorted(glob.glob('R_CVPR2020_jpg_training/HDR_gt/*.hdr'))
-LDRs_512 = sorted(glob.glob('R_CVPR2020_jpg_training/LDR_in/*.jpg'))
+HDRs_512 = sorted(glob.glob('/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Real/HDR_gt/*.hdr'))
+LDRs_512 = sorted(glob.glob('/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Real/LDR_in/*.jpg'))
 
 for i, scene_dir in enumerate(HDRs_512):
     if (i % 10 == 0):
-        print('%d/%d' % (i, len(HDRs_512)))
+        print(f'{i}/{len(HDRs_512)}')
 
     # read images
 
@@ -46,7 +47,7 @@ for i, scene_dir in enumerate(HDRs_512):
             writer.close()
             cur_writing_path = os.path.join(out_dir,
                                             "train_{:d}_{:04d}.tfrecords".format(patch_stride, cur_batch_index))
-            writer = tf.python_io.TFRecordWriter(cur_writing_path)
+            writer = tf.io.TFRecordWriter(cur_writing_path, TFRECORD_OPTION)
 
 
         ref_HDR_patch = ref_HDR[h1:h2, w1:w2, ::-1]

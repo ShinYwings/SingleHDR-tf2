@@ -1,38 +1,65 @@
 import tensorflow as tf
 
-class Refinement_net(object):
-    def __init__(self, is_train=True):
-        self.is_train = is_train
+import tensorflow as tf
+from tensorflow.keras import Model
 
-    def inference(self, input_images):
-        """Inference on a set of input_images.
-        Args:
-        """
-        return self._build_model(input_images)
-
-    def down(self, x, outChannels, filterSize):
-        x = tf.layers.average_pooling2d(x, 2, 2)
-        x = tf.nn.leaky_relu(tf.layers.conv2d(x, outChannels, filterSize, 1, 'same'), 0.1)
-        x = tf.nn.leaky_relu(tf.layers.conv2d(x, outChannels, filterSize, 1, 'same'), 0.1)
+class down(Model):
+    
+    def __init__(self, outChannels, kernel_size=(3,3), strides=1, padding="SAME"):
+        super(down, self).__init__()
+        self.conv1 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.conv2 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.pool  = tf.keras.layers.AveragePooling2D((2,2), strides=2)
+    def call(self, x):
+        x = self.pool(x)
+        x = tf.nn.leaky_relu(self.conv1(x), 0.1)
+        x = tf.nn.leaky_relu(self.conv2(x), 0.1)
         return x
 
-    def up(self, x, outChannels, skpCn):
-        x = tf.image.resize_bilinear(x, 2*tf.shape(x)[1:3])
-        x = tf.nn.leaky_relu(tf.layers.conv2d(x, outChannels, 3, 1, 'same'), 0.1)
-        x = tf.nn.leaky_relu(tf.layers.conv2d(tf.concat([x, skpCn], -1), outChannels, 3, 1, 'same'), 0.1)
+class up(Model):
+    
+    def __init__(self, outChannels, kernel_size=3, strides=1, padding="SAME"):
+        super(up, self).__init__()
+        self.conv1 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+        self.conv2 = tf.keras.layers.Conv2D(outChannels, kernel_size=kernel_size, strides=strides, padding=padding)
+
+    def call(self, x, skpCn):
+        x = tf.image.resize(x, 2*tf.shape(x)[1:3], method=tf.image.ResizeMethod.BILINEAR)
+        x = tf.nn.leaky_relu(self.conv1(x), 0.1)
+        x = tf.nn.leaky_relu(self.conv2(tf.concat([x, skpCn], -1)), 0.1)
+
         return x
 
-    def _build_model(self, input_images):
-        x = tf.nn.leaky_relu(tf.layers.conv2d(input_images, 16, 7, 1, 'same'), 0.1)
-        s1 = tf.nn.leaky_relu(tf.layers.conv2d(x, 16, 7, 1, 'same'), 0.1)
-        s2 = self.down(s1, 32, 5)
-        s3 = self.down(s2, 64, 3)
-        s4 = self.down(s3, 128, 3)
-        x = self.down(s4, 128, 3)
-        x = self.up(x, 128, s4)
-        x = self.up(x, 64, s3)
-        x = self.up(x, 32, s2)
-        x = self.up(x, 16, s1)
-        x = tf.layers.conv2d(x, 3, 3, 1, 'same')
-        output = input_images[..., 0:3] + x
-        return output
+class model(Model):
+    def __init__(self, strides=(1,1), padding="SAME"):
+        super(model, self).__init__()
+
+        self.conv1 = tf.keras.layers.Conv2D(16, kernel_size=(7,7), strides=strides, padding=padding)
+        self.conv2 = tf.keras.layers.Conv2D(16, kernel_size=(7,7), strides=strides, padding=padding)
+        self.d2 = down(outChannels=32, kernel_size=(5,5))
+        self.d3 = down(outChannels=64, kernel_size=(3,3))
+        self.d4 = down(outChannels=128, kernel_size=(3,3))
+        self.enc = down(outChannels=128, kernel_size=(3,3))
+        
+        self.u4 = up(outChannels=128, kernel_size=(3,3))
+        self.u3 = up(outChannels=64, kernel_size=(3,3))
+        self.u2 = up(outChannels=32, kernel_size=(3,3))
+        self.u1 = up(outChannels=16, kernel_size=(3,3))
+    
+    def call(self, input_images):
+
+        x = tf.nn.leaky_relu(self.conv1(input_images), 0.1)
+        s1 = tf.nn.leaky_relu(self.conv2(x), 0.1)
+        s2 = self.d2(s1)
+        s3 = self.d3(s2)
+        s4 = self.d4(s3)
+        x = self.enc(s4)
+
+        x = self.u4(x, s4)
+        x = self.u3(x, s3)
+        x = self.u2(x, s2)
+        x = self.u1(x, s1)
+
+        res = tf.add(input_images[..., 0:3], x)
+
+        return res

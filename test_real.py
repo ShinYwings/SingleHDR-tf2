@@ -48,7 +48,7 @@ def build_graph(
     alpha = tf.reshape(alpha, [-1, tf.shape(B_pred)[1], tf.shape(B_pred)[2], 1])
     alpha = tf.tile(alpha, [1, 1, 1, 3])
     with tf.variable_scope("Hallucination_Net"):
-        net_test, vgg16_conv_layers_test = hallucination_net.model(B_pred, ARGS.batch_size, False)
+        net_test = hallucination_net.model(B_pred, ARGS.batch_size, False)
         y_predict_test = net_test.outputs
         y_predict_test = tf.nn.relu(y_predict_test)
         A_pred = (B_pred) + alpha * y_predict_test

@@ -187,26 +187,4 @@ class model(Model):
         # Final skip-connection
         out = self.s0(x, bgr)
 
-        return out, enc
-
-    # TODO ????????????
-    # Final prediction of the model, including blending with input
-    def get_final(network, x_in):
-        sb, sy, sx, sf = x_in.get_shape().as_list()
-        y_predict = network.outputs
-
-        # Highlight mask
-        thr = 0.05
-        alpha = tf.reduce_max(x_in, reduction_indices=[3])
-        alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + thr) / thr)
-        alpha = tf.reshape(alpha, [-1, sy, sx, 1])
-        alpha = tf.tile(alpha, [1, 1, 1, 3])
-
-        # Linearied input and prediction
-        x_lin = tf.pow(x_in, 2.0)
-        y_predict = tf.exp(y_predict) - 1.0 / 255.0
-
-        # Alpha blending
-        y_final = (1 - alpha) * x_lin + alpha * y_predict
-
-        return y_final
+        return tf.nn.relu(out)
