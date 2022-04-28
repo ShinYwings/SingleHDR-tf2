@@ -82,7 +82,6 @@ def interp_1d(
     
     return w_0*y_0_val + w_1*y_1_val
 
-
 def apply_rf(
     x,  # [b, s...]
     rf, # [b, k]
@@ -161,83 +160,9 @@ def checkpoint_initialization(model_name : str,
 
     return ckpt, ckpt_manager
 
-    #######################
-    # Dequantization
-    #######################
-    
-    # if DEQ_PRETRAINED_DIR is None:
-    #     checkpoint_path_deq = utils.createNewDir(checkpoint_path, "deq")
-    # else: checkpoint_path_deq = DEQ_PRETRAINED_DIR
-    
-    # ckpt_deq = tf.train.Checkpoint(
-    #                         epoch = tf.Variable(0),
-    #                         deq=_deq,
-    #                        optimizer=optimizer_deq,)
-
-    # ckpt_manager_deq = tf.train.CheckpointManager(ckpt_deq, checkpoint_path_deq, max_to_keep=5)
-
-    # # if a checkpoint exists, restore the latest checkpoint.
-    # if ckpt_manager_deq.latest_checkpoint:
-    #     ckpt_deq.restore(ckpt_manager_deq.latest_checkpoint)
-    #     print('Latest deq checkpoint has restored!!')
-
-    ##################
-    # Linearization
-    ##################
-    # if LIN_PRETRAINED_DIR is None:
-    #     checkpoint_path_lin = utils.createNewDir(checkpoint_path, "lin")
-    # else: checkpoint_path_lin = LIN_PRETRAINED_DIR
-    
-    # ckpt_lin = tf.train.Checkpoint(
-    #                         epoch = tf.Variable(0),
-    #                         lin=_lin,
-    #                        optimizer=optimizer_lin,)
-
-    # ckpt_manager_lin = tf.train.CheckpointManager(ckpt_lin, checkpoint_path_lin, max_to_keep=5)
-
-    # #  if a checkpoint exists, restore the latest checkpoint.
-    # if ckpt_manager_lin.latest_checkpoint:
-    #     ckpt_lin.restore(ckpt_manager_lin.latest_checkpoint)
-    #     print('Latest lin checkpoint has restored!!')
-
-    ####################
-    #  Hallucination
-    ####################
-
-    # if HAL_PRETRAINED_DIR is None:
-    #     checkpoint_path_hal = utils.createNewDir(checkpoint_path, "hal")
-    # else: checkpoint_path_hal = HAL_PRETRAINED_DIR
-    
-    # ckpt_hal = tf.train.Checkpoint(
-    #                         epoch = tf.Variable(0),
-    #                         hal=_hal,
-    #                        optimizer=optimizer_hal,)
-
-    # ckpt_manager_hal = tf.train.CheckpointManager(ckpt_hal, checkpoint_path_hal, max_to_keep=5)
-
-    # #  if a checkpoint exists, restore the latest checkpoint.
-    # if ckpt_manager_hal.latest_checkpoint:
-    #     ckpt_hal.restore(ckpt_manager_hal.latest_checkpoint)
-    #     print('Latest hal checkpoint has restored!!')
-
 def model_initialization(model_name : str, lr = "lr"):
     optimizer = tf.keras.optimizers.Adam(lr)
     train_loss = tf.keras.metrics.Mean(name= 'train_loss_{}'.format(model_name), dtype=tf.float32)
     test_loss = tf.keras.metrics.Mean(name='test_loss_{}'.format(model_name), dtype=tf.float32)
 
     return optimizer, train_loss, test_loss
-    
-    # deq
-    # optimizer_deq = tf.keras.optimizers.Adam(LEARNING_RATE)
-    # train_loss_deq = tf.keras.metrics.Mean(name= 'train_loss_deq', dtype=tf.float32)
-    # test_loss_deq = tf.keras.metrics.Mean(name='test_loss_deq', dtype=tf.float32)
-    
-    # lin
-    # optimizer_lin = tf.keras.optimizers.Adam(LEARNING_RATE)
-    # train_loss_lin = tf.keras.metrics.Mean(name= 'train_loss_lin', dtype=tf.float32)
-    # test_loss_lin = tf.keras.metrics.Mean(name='test_loss_lin', dtype=tf.float32)
-
-    # hal
-    # optimizer_hal = tf.keras.optimizers.Adam(LEARNING_RATE)
-    # train_loss_hal = tf.keras.metrics.Mean(name= 'train_loss_hal', dtype=tf.float32)
-    # test_loss_hal = tf.keras.metrics.Mean(name='test_loss_hal', dtype=tf.float32)

@@ -25,7 +25,7 @@ BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and
 """
 # Hyper parameters
 LEARNING_RATE = 1e-5
-BATCH_SIZE = 4
+BATCH_SIZE = 16
 THRESHOLD = 0.12
 
 EPOCHS = 1000
@@ -36,38 +36,32 @@ HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
 
 CURRENT_WORKINGDIR = os.getcwd()
 DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/256_64_b32_tfrecords")
-
-TRAIN_DEQ = True
-TRAIN_LIN = True
-TRAIN_HAL = True
-TRAIN_REF = True
+# DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/debug")
 
 DEQ_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/deq_pretrained_40k"
 LIN_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/lin_before_hist_fix"
 HAL_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/hal"
 REF_PRETRAINED_DIR = None
 
+# def hdr_logCompression(x, validDR = 5000.):
 
+#     # disentangled way
+#     x = tf.math.multiply(validDR, x)
+#     numerator = tf.math.log(1.+ x)
+#     denominator = tf.math.log(1.+validDR)
+#     output = tf.math.divide(numerator, denominator) - 1.
 
-def hdr_logCompression(x, validDR = 5000.):
+#     return output
 
-    # disentangled way
-    x = tf.math.multiply(validDR, x)
-    numerator = tf.math.log(1.+ x)
-    denominator = tf.math.log(1.+validDR)
-    output = tf.math.divide(numerator, denominator) - 1.
+# def hdr_logDecompression(x, validDR = 5000.):
 
-    return output
-
-def hdr_logDecompression(x, validDR = 5000.):
-
-    x = x + 1.
-    denominator = tf.math.log(1.+validDR)
-    x = tf.math.multiply(x, denominator)
-    x = tf.math.exp(x)
-    output = tf.math.divide(x, validDR)
+#     x = x + 1.
+#     denominator = tf.math.log(1.+validDR)
+#     x = tf.math.multiply(x, denominator)
+#     x = tf.math.exp(x)
+#     output = tf.math.divide(x, validDR)
     
-    return output
+#     return output
     
 def _parse_function(example_proto):
     # Parse the input `tf.train.Example` proto using the dictionary above.
@@ -96,8 +90,6 @@ def _parse_function(example_proto):
     ref_HDR = tf.image.rot90(ref_HDR, k)
     ref_LDR = tf.image.rot90(ref_LDR, k)
 
-    # TODO correct to HDR-Real dataset
-
     return ref_LDR, ref_HDR
 
 def configureDataset(dirpath):
@@ -105,7 +97,7 @@ def configureDataset(dirpath):
     tfrecords_list = list()
     a = tf.data.Dataset.list_files(os.path.join(dirpath, "*.tfrecords"), shuffle=False)
     tfrecords_list.extend(a)
-
+    
     ds = tf.data.TFRecordDataset(filenames=tfrecords_list, num_parallel_reads=AUTO, compression_type="GZIP")
     ds = ds.map(_parse_function, num_parallel_calls=AUTO)
 
@@ -115,7 +107,7 @@ def configureDataset(dirpath):
     #     ds = ds.batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
     # deq_ds, lin_ds = ds, ds
     
-    ds  = ds.batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
+    ds  = ds.shuffle(buffer_size = len(tfrecords_list)).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
 
     return ds
         
@@ -144,92 +136,76 @@ if __name__=="__main__":
     _ref = ref.model()
 
     """"Create Output Image Directory"""
-    if(TRAIN_DEQ):
-        # train_summary_writer_deq, test_summary_writer_deq, logdir_deq = tf_utils.createDirectories(root_dir, name="deq", dir="tensorboard")
-        # print(f'tensorboard --logdir={logdir_deq}')
-        # train_outImgDir_deq, test_outImgDir_deq = tf_utils.createDirectories(root_dir, name="deq", dir="outputImg")
+    optimizer_deq, _, _ = tf_utils.model_initialization("deq", LEARNING_RATE) 
 
-        """Model initialization"""
-        optimizer_deq, train_loss_deq, test_loss_deq = tf_utils.model_initialization("deq", LEARNING_RATE) 
-
-        ckpt_deq, ckpt_manager_deq = tf_utils.checkpoint_initialization(
-                                        model_name="deq",
-                                        pretrained_dir=DEQ_PRETRAINED_DIR,
-                                        checkpoint_path=checkpoint_path,
-                                        model=_deq,
-                                        optimizer=optimizer_deq)
+    ckpt_deq, ckpt_manager_deq = tf_utils.checkpoint_initialization(
+                                    model_name="deq",
+                                    pretrained_dir=DEQ_PRETRAINED_DIR,
+                                    checkpoint_path=checkpoint_path,
+                                    model=_deq,
+                                    optimizer=optimizer_deq)
     
-    if(TRAIN_LIN):
-        # train_summary_writer_lin, test_summary_writer_lin, logdir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="tensorboard")
-        # print(f'tensorboard --logdir={logdir_lin}')
-        # train_outImgDir_lin, test_outImgDir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="outputImg")
+      
+    optimizer_lin, _, _ = tf_utils.model_initialization("lin", LEARNING_RATE)
+
+    ckpt_lin, ckpt_manager_lin = tf_utils.checkpoint_initialization(
+                                    model_name="lin",
+                                    pretrained_dir=LIN_PRETRAINED_DIR,
+                                    checkpoint_path=checkpoint_path,
+                                    model=_lin,
+                                    optimizer=optimizer_lin)
+    
         
-        """Model initialization"""
-        optimizer_lin, train_loss_lin, test_loss_lin = tf_utils.model_initialization("lin", LEARNING_RATE)
+    optimizer_hal, _, _ = tf_utils.model_initialization("hal", LEARNING_RATE)
 
-        ckpt_lin, ckpt_manager_lin = tf_utils.checkpoint_initialization(
-                                        model_name="lin",
-                                        pretrained_dir=LIN_PRETRAINED_DIR,
-                                        checkpoint_path=checkpoint_path,
-                                        model=_lin,
-                                        optimizer=optimizer_lin)
-    if(TRAIN_HAL):
-        # train_summary_writer_hal, test_summary_writer_hal, logdir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="tensorboard")
-        # print(f'tensorboard --logdir={logdir_hal}')
-        # train_outImgDir_hal, test_outImgDir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="outputImg")
-
-        """Model initialization"""
-        optimizer_hal, train_loss_hal, test_loss_hal = tf_utils.model_initialization("hal", LEARNING_RATE)
+    ckpt_hal, ckpt_manager_hal = tf_utils.checkpoint_initialization(
+                                    model_name="hal",
+                                    pretrained_dir=HAL_PRETRAINED_DIR,
+                                    checkpoint_path=checkpoint_path,
+                                    model=_hal,
+                                    optimizer=optimizer_hal)
     
-        ckpt_hal, ckpt_manager_hal = tf_utils.checkpoint_initialization(
-                                        model_name="hal",
-                                        pretrained_dir=HAL_PRETRAINED_DIR,
-                                        checkpoint_path=checkpoint_path,
-                                        model=_hal,
-                                        optimizer=optimizer_hal)
-    
-    if(TRAIN_REF):
-        train_summary_writer_ref, test_summary_writer_ref, logdir_ref = tf_utils.createDirectories(root_dir, name="ref", dir="tensorboard")
-        print(f'tensorboard --logdir={logdir_ref}')
+    train_summary_writer_ref, test_summary_writer_ref, logdir_ref = tf_utils.createDirectories(root_dir, name="ref", dir="tensorboard")
+    print(f'tensorboard --logdir={logdir_ref}')
 
-        """Model initialization"""
-        optimizer_ref, train_loss_ref, test_loss_ref = tf_utils.model_initialization("ref", LEARNING_RATE) 
+    """Model initialization"""
+    optimizer_ref, train_loss_ref, test_loss_ref = tf_utils.model_initialization("ref", LEARNING_RATE) 
 
-        ckpt_ref, ckpt_manager_ref = tf_utils.checkpoint_initialization(
-                                        model_name="ref",
-                                        pretrained_dir=REF_PRETRAINED_DIR,
-                                        checkpoint_path=checkpoint_path,
-                                        model=_ref,
-                                        optimizer=optimizer_ref)
+    ckpt_ref, ckpt_manager_ref = tf_utils.checkpoint_initialization(
+                                    model_name="ref",
+                                    pretrained_dir=REF_PRETRAINED_DIR,
+                                    checkpoint_path=checkpoint_path,
+                                    model=_ref,
+                                    optimizer=optimizer_ref)
 
     """
     Check out the dataset that properly work
     """
     # import matplotlib.pyplot as plt
     # plt.figure(figsize=(20,20))
-    # for i, (image, means) in enumerate(train_ds.take(25)):
-    #     ax = plt.subplot(5,5,i+1)
-    #     plt.imshow(image[i])
+    # i = 0
+    # for (ldr, hdr) in ds.take(15):
+    #     print(tf.shape(hdr))
+    #     ax = plt.subplot(2,15,i+1)
+    #     plt.imshow(ldr[0])
+    #     ax = plt.subplot(2,15,i+2)
+    #     plt.imshow(hdr[0])
     #     plt.axis('off')
+    #     i+=2
     # plt.show()
     
     with tf.device('/GPU:0'):
-
-        _clip = lambda x: tf.clip_by_value(x, 0, 1)
-            
-        ##############
-        # Refinement #
-        ##############
+        
         @tf.function
         def train_step(ldr, hdr):
             
             denominator = 1 / tf.math.log(1.0 + 10.0)
-
+            
             with tf.GradientTape() as tape:
-                
+
                 # Dequantization
-                pred = _deq(ldr, training= True)
-                C_pred = _clip(pred)
+                pred_deq = _deq(ldr, training= True)
+                C_pred = tf.clip_by_value(pred_deq, 0, 1)
 
                 # Linearization
                 pred_invcrf = _lin(C_pred, training= True)
@@ -244,29 +220,17 @@ if __name__=="__main__":
                 hal_res = _hal(B_pred, training= True)
                 A_pred = (B_pred) + alpha * hal_res
 
+                hdr_gamma = tf.math.log(1.0 + 10.0 * hdr) * denominator
+
                 # Refinement
                 refinement_output = _ref(tf.concat([A_pred, B_pred, C_pred], -1), training=True)
                 refinement_output = refinement_output / (1e-6 + tf.reduce_mean(refinement_output, axis=[1, 2, 3], keepdims=True)) * 0.5
                 refinement_output_gamma = tf.math.log(1.0 + 10.0 * refinement_output) * denominator
-                hdr_gamma = tf.math.log(1.0 + 10.0 * hdr) * denominator
                 loss = tf.reduce_mean(tf.abs(refinement_output_gamma - hdr_gamma))
-
-                """compare with DLH output (without refinement net)"""
-                # A_pred_output = A_pred / (1e-6 + tf.reduce_mean(A_pred, axis=[1, 2, 3], keepdims=True)) * 0.5
-                # A_pred_output_gamma = tf.math.log(1.0 + 10.0 * A_pred_output) * denominator
-                # A_pred_loss = tf.reduce_mean(tf.abs(A_pred_output_gamma - hdr_gamma))
             
-            gradients_deq, gradients_lin, gradients_hal, gradients_ref = tape.gradient(loss, [_deq.trainable_variables, _lin.trainable_variables, _hal.trainable_variables, _ref.trainable_variables] )
+            gradients = tape.gradient(loss, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables+_ref.trainable_variables)
+            optimizer_ref.apply_gradients(zip(gradients, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables+_ref.trainable_variables))
             
-            if TRAIN_DEQ:
-                optimizer_deq.apply_gradients(zip(gradients_deq, _deq.trainable_variables))
-            if TRAIN_LIN:
-                optimizer_lin.apply_gradients(zip(gradients_lin, _lin.trainable_variables))
-            if TRAIN_HAL:
-                optimizer_hal.apply_gradients(zip(gradients_hal, _hal.trainable_variables))
-            
-            optimizer_ref.apply_gradients(zip(gradients_ref, _ref.trainable_variables))
-
             train_loss_ref(loss)
 
             # return [A_pred_loss, C_pred, B_pred, A_pred, refinement_output]
@@ -316,10 +280,7 @@ if __name__=="__main__":
         
         for ckpt in ckpts:
             ckpt.epoch.assign_add(1)
-        # ckpt_lin.epoch.assign_add(1)
-        # ckpt_hal.epoch.assign_add(1)
-        # ckpt_ref.epoch.assign_add(1)
-
+        
         for ckpt_manager in ckpt_managers:
             save_path =  ckpt_manager.save()
             print(f"Saved checkpoint for step {epoch}: {save_path}")

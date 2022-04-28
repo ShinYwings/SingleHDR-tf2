@@ -42,33 +42,34 @@ DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "dataset/tfrecord")
 TRAIN_DIR = os.path.join(DATASET_DIR, "train")
 TEST_DIR = os.path.join(DATASET_DIR, "test")
 
-TRAIN_DEQ = False
+TRAIN_DEQ = True
 TRAIN_LIN = False
 TRAIN_HAL = False
 
-DEQ_PRETRAINED_DIR = None
+# Absolute path
+DEQ_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/deq_pretrained_40k"
 LIN_PRETRAINED_DIR = None
 HAL_PRETRAINED_DIR = None
 
-def hdr_logCompression(x, validDR = 5000.):
+# def hdr_logCompression(x, validDR = 5000.):
 
-    # disentangled way
-    x = tf.math.multiply(validDR, x)
-    numerator = tf.math.log(1.+ x)
-    denominator = tf.math.log(1.+validDR)
-    output = tf.math.divide(numerator, denominator) - 1.
+#     # disentangled way
+#     x = tf.math.multiply(validDR, x)
+#     numerator = tf.math.log(1.+ x)
+#     denominator = tf.math.log(1.+validDR)
+#     output = tf.math.divide(numerator, denominator) - 1.
 
-    return output
+#     return output
 
-def hdr_logDecompression(x, validDR = 5000.):
+# def hdr_logDecompression(x, validDR = 5000.):
 
-    x = x + 1.
-    denominator = tf.math.log(1.+validDR)
-    x = tf.math.multiply(x, denominator)
-    x = tf.math.exp(x)
-    output = tf.math.divide(x, validDR)
+#     x = x + 1.
+#     denominator = tf.math.log(1.+validDR)
+#     x = tf.math.multiply(x, denominator)
+#     x = tf.math.exp(x)
+#     output = tf.math.divide(x, validDR)
     
-    return output
+#     return output
 
 def _preprocessing(module, hdr, crf, t):
     b, h, w, c, = tf_utils.get_tensor_shape(hdr)
@@ -128,45 +129,45 @@ def _preprocessing(module, hdr, crf, t):
     else:
         exit(0)
     
-def _parse_function(example_proto):
-    # Parse the input `tf.train.Example` proto using the dictionary above.
-    feature_description = {
-        'image': tf.io.FixedLenFeature([], tf.string),
-        'render': tf.io.FixedLenFeature([], tf.string),
-        'azimuth' : tf.io.FixedLenFeature([], tf.float32),
-        'elevation' : tf.io.FixedLenFeature([], tf.float32),
-    }
-    example = tf.io.parse_single_example(example_proto, feature_description)
+# def _parse_function(example_proto):
+#     # Parse the input `tf.train.Example` proto using the dictionary above.
+#     feature_description = {
+#         'image': tf.io.FixedLenFeature([], tf.string),
+#         'render': tf.io.FixedLenFeature([], tf.string),
+#         'azimuth' : tf.io.FixedLenFeature([], tf.float32),
+#         'elevation' : tf.io.FixedLenFeature([], tf.float32),
+#     }
+#     example = tf.io.parse_single_example(example_proto, feature_description)
 
-    hdr = tf.io.decode_raw(example['image'], np.float32)
-    hdr = tf.reshape(hdr, IMSHAPE)
+#     hdr = tf.io.decode_raw(example['image'], np.float32)
+#     hdr = tf.reshape(hdr, IMSHAPE)
 
-    # TODO correct to HDR-Real dataset
+#     # TODO correct to HDR-Real dataset
 
-    return hdr
+#     return hdr
 
-def configureDataset(dirpath, train= "train"):
+# def configureDataset(dirpath, train= "train"):
 
-    tfrecords_list = list()
-    a = tf.data.Dataset.list_files(os.path.join(dirpath, "*.tfrecord"), shuffle=False)
-    tfrecords_list.extend(a)
+#     tfrecords_list = list()
+#     a = tf.data.Dataset.list_files(os.path.join(dirpath, "*.tfrecord"), shuffle=False)
+#     tfrecords_list.extend(a)
 
-    ds = tf.data.TFRecordDataset(filenames=tfrecords_list, num_parallel_reads=AUTO, compression_type="GZIP")
-    ds = ds.map(_parse_function, num_parallel_calls=AUTO)
+#     ds = tf.data.TFRecordDataset(filenames=tfrecords_list, num_parallel_reads=AUTO, compression_type="GZIP")
+#     ds = ds.map(_parse_function, num_parallel_calls=AUTO)
 
-    # if train:
-    #     ds = ds.shuffle(buffer_size = 10000).batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
-    # else:
-    #     ds = ds.batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
-    # deq_ds, lin_ds = ds, ds
+#     # if train:
+#     #     ds = ds.shuffle(buffer_size = 10000).batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
+#     # else:
+#     #     ds = ds.batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
+#     # deq_ds, lin_ds = ds, ds
     
-    # TODO DEBUG
-    if train:
-        ds  = ds.take(700).shuffle(buffer_size = 700).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
-    else:
-        ds  = ds.take(300).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
+#     # TODO DEBUG
+#     if train:
+#         ds  = ds.take(700).shuffle(buffer_size = 700).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
+#     else:
+#         ds  = ds.take(300).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
 
-    return ds
+#     return ds
         
 if __name__=="__main__":
 
@@ -377,7 +378,7 @@ if __name__=="__main__":
         if module == "deq":
             EPOCHS = 47000     # overfitted on around 52.4k iter
         if module == "lin":
-            EPOCHS = 220000     # overfitted on around 52.4k iter
+            EPOCHS = 220000
 
         # TODO model verification
         #########################################

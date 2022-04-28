@@ -338,17 +338,12 @@ class model(Model):
         # histogram branch
         tmp_list = []
         
-        # TODO correct the formula
-        # _threshold = 1. / max_bin
-        # condition = lambda x: tf.less(x, _threshold)
-        # max_bin_sq = 2.*max_bin
-        # for i in range(1, max_bin + 1):    
-        #     distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_sq))
-        #     histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
-        #     tmp_list.append(histo)
-
-        for i in range(max_bin + 1):
-            histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
+        _threshold = 1. / max_bin
+        condition = lambda x: tf.less(x, _threshold)
+        max_bin_sq = 2.*max_bin
+        for i in range(1, max_bin + 1):    
+            distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_sq))
+            histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
             tmp_list.append(histo)
 
         histogram_tensor = tf.concat(tmp_list, -1)

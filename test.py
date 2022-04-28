@@ -49,7 +49,6 @@ def histogram_layer(img, max_bin):
     condition = lambda x: tf.less(x, _threshold)
 
     for i in range(1, max_bin + 1):
-        # TODO correct the formula
         distance = tf.abs(img - tf.divide((2.*i -1.), 2.*max_bin))
         histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
         tmp_list.append(histo)
