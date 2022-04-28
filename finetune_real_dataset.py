@@ -18,8 +18,6 @@ import refinement_net as ref
 
 AUTO = tf.data.AUTOTUNE
 
-# HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
-# HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
 """
 BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
 """
@@ -38,9 +36,14 @@ CURRENT_WORKINGDIR = os.getcwd()
 DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/256_64_b32_tfrecords")
 # DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/debug")
 
-DEQ_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/deq_pretrained_40k"
-LIN_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/lin_before_hist_fix"
-HAL_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/hal"
+# DEQ_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/deq_pretrained_40k"
+# LIN_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/lin_before_hist_fix"
+# HAL_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/hal"
+# REF_PRETRAINED_DIR = None
+
+DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq_pretrained_40k")
+LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
+HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal")
 REF_PRETRAINED_DIR = None
 
 # def hdr_logCompression(x, validDR = 5000.):
@@ -117,9 +120,7 @@ if __name__=="__main__":
     # if gpus:
     #     for gpu in gpus:
     #         tf.config.experimental.set_memory_growth(gpu, True)
-    
-    """Path for tf.summary.FileWriter and to store model checkpoints"""
-    root_dir=os.getcwd()
+
     
     """Init Dataset"""
     # train_ds = configureDataset(TRAIN_DIR, train=True)
@@ -128,7 +129,7 @@ if __name__=="__main__":
     ds  = configureDataset(DATASET_DIR)
 
     """CheckPoint Create"""
-    checkpoint_path = utils.createNewDir(root_dir, "checkpoints")
+    checkpoint_path = utils.createNewDir(CURRENT_WORKINGDIR, "checkpoints")
 
     _deq  = deq.model()
     _lin = lin.model()
@@ -165,7 +166,7 @@ if __name__=="__main__":
                                     model=_hal,
                                     optimizer=optimizer_hal)
     
-    train_summary_writer_ref, test_summary_writer_ref, logdir_ref = tf_utils.createDirectories(root_dir, name="ref", dir="tensorboard")
+    train_summary_writer_ref, test_summary_writer_ref, logdir_ref = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="ref", dir="tensorboard")
     print(f'tensorboard --logdir={logdir_ref}')
 
     """Model initialization"""
