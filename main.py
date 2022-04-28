@@ -22,8 +22,8 @@ from vgg16 import Vgg16
 
 AUTO = tf.data.AUTOTUNE
 
-HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
-# HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
+# HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
+HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
 """
 BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
 """

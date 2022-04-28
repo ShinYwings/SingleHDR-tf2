@@ -340,9 +340,10 @@ class model(Model):
         
         _threshold = 1. / max_bin
         condition = lambda x: tf.less(x, _threshold)
-        max_bin_sq = 2.*max_bin
-        for i in range(1, max_bin + 1):    
-            distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_sq))
+        max_bin_square = 2.*max_bin
+
+        for i in range(1, max_bin + 1):
+            distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_square))
             histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
             tmp_list.append(histo)
 
