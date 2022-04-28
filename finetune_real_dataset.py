@@ -34,12 +34,6 @@ HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
 
 CURRENT_WORKINGDIR = os.getcwd()
 DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/256_64_b32_tfrecords")
-# DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/debug")
-
-# DEQ_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/deq_pretrained_40k"
-# LIN_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/lin_before_hist_fix"
-# HAL_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/hal"
-# REF_PRETRAINED_DIR = None
 
 DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq_pretrained_40k")
 LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
