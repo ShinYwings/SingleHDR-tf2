@@ -35,7 +35,7 @@ HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
 CURRENT_WORKINGDIR = os.getcwd()
 DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "testImg/HDR-Real")
 
-DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq_pretrained_40k")
+DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq")
 LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
 HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal")
 REF_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/ref")

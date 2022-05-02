@@ -40,7 +40,7 @@ TRAIN_LIN = False
 TRAIN_HAL = False
 
 # Absolute path
-DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq_pretrained_40k") if TRAIN_DEQ else None
+DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq") if TRAIN_DEQ else None
 LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin") if TRAIN_LIN else None
 HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal") if TRAIN_HAL else None
 
