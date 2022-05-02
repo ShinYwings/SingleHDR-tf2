@@ -276,7 +276,6 @@ def get_train_dataset(hdr_prefix):
         CatDataset([train_crf_list, train_invcrf_list]),
         train_t_list,
     ])
-    # return PatchHDRDataset(hdr_prefix, i_dataset_train_posfix_list, True), CatDataset([train_crf_list, train_invcrf_list]), train_t_list
 
 # --- get_vali_dataset
 def get_vali_dataset(hdr_prefix):

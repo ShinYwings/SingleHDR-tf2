@@ -137,3 +137,5 @@ tf_records/
 vgg16.npy
 vgg16_places365_weights.npy
 checkpoints_init_states/
+result_checkpoints/
+output_imgs/

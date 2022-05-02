@@ -6,12 +6,10 @@ import os
 import numpy as np
 import tensorflow as tf
 import time
-from tqdm import tqdm
 
 import utils
 from dataset import get_train_dataset, RandDatasetReader
 import tf_utils
-# from random_tone_map import random_tone_map
 
 import dequantization_net as deq
 import linearization_net as lin
@@ -28,53 +26,26 @@ HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
 BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
 """
 # Hyper parameters
-LEARNING_RATE = 1e-3
-BATCH_SIZE = 8
+LEARNING_RATE = 1e-4
+BATCH_SIZE = 16
 
 EPOCHS = 5000000
-IMSHAPE = (32,128,3)
-RENDERSHAPE = (64,64,3)
 
 HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
 
 CURRENT_WORKINGDIR = os.getcwd()
-DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "dataset/tfrecord")
-TRAIN_DIR = os.path.join(DATASET_DIR, "train")
-TEST_DIR = os.path.join(DATASET_DIR, "test")
 
 TRAIN_DEQ = True
 TRAIN_LIN = False
 TRAIN_HAL = False
 
 # Absolute path
-DEQ_PRETRAINED_DIR = "/home/shin/shinywings/singleHDR/checkpoints/deq_pretrained_40k"
-LIN_PRETRAINED_DIR = None
-HAL_PRETRAINED_DIR = None
-
-# def hdr_logCompression(x, validDR = 5000.):
-
-#     # disentangled way
-#     x = tf.math.multiply(validDR, x)
-#     numerator = tf.math.log(1.+ x)
-#     denominator = tf.math.log(1.+validDR)
-#     output = tf.math.divide(numerator, denominator) - 1.
-
-#     return output
-
-# def hdr_logDecompression(x, validDR = 5000.):
-
-#     x = x + 1.
-#     denominator = tf.math.log(1.+validDR)
-#     x = tf.math.multiply(x, denominator)
-#     x = tf.math.exp(x)
-#     output = tf.math.divide(x, validDR)
-    
-#     return output
+DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq_pretrained_40k") if TRAIN_DEQ else None
+LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin") if TRAIN_LIN else None
+HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal") if TRAIN_HAL else None
 
 def _preprocessing(module, hdr, crf, t):
     b, h, w, c, = tf_utils.get_tensor_shape(hdr)
-    b, k, = tf_utils.get_tensor_shape(crf)
-    b, = tf_utils.get_tensor_shape(t)
     
     _hdr_t = hdr * tf.reshape(t, [b, 1, 1, 1])
 
@@ -129,60 +100,11 @@ def _preprocessing(module, hdr, crf, t):
     else:
         exit(0)
     
-# def _parse_function(example_proto):
-#     # Parse the input `tf.train.Example` proto using the dictionary above.
-#     feature_description = {
-#         'image': tf.io.FixedLenFeature([], tf.string),
-#         'render': tf.io.FixedLenFeature([], tf.string),
-#         'azimuth' : tf.io.FixedLenFeature([], tf.float32),
-#         'elevation' : tf.io.FixedLenFeature([], tf.float32),
-#     }
-#     example = tf.io.parse_single_example(example_proto, feature_description)
-
-#     hdr = tf.io.decode_raw(example['image'], np.float32)
-#     hdr = tf.reshape(hdr, IMSHAPE)
-
-#     # TODO correct to HDR-Real dataset
-
-#     return hdr
-
-# def configureDataset(dirpath, train= "train"):
-
-#     tfrecords_list = list()
-#     a = tf.data.Dataset.list_files(os.path.join(dirpath, "*.tfrecord"), shuffle=False)
-#     tfrecords_list.extend(a)
-
-#     ds = tf.data.TFRecordDataset(filenames=tfrecords_list, num_parallel_reads=AUTO, compression_type="GZIP")
-#     ds = ds.map(_parse_function, num_parallel_calls=AUTO)
-
-#     # if train:
-#     #     ds = ds.shuffle(buffer_size = 10000).batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
-#     # else:
-#     #     ds = ds.batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
-#     # deq_ds, lin_ds = ds, ds
-    
-#     # TODO DEBUG
-#     if train:
-#         ds  = ds.take(700).shuffle(buffer_size = 700).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
-#     else:
-#         ds  = ds.take(300).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
-
-#     return ds
-        
 if __name__=="__main__":
 
-    # gpus = tf.config.experimental.list_physical_devices('GPU')
-    # if gpus:
-    #     for gpu in gpus:
-    #         tf.config.experimental.set_memory_growth(gpu, True)
-    
     """Path for tf.summary.FileWriter and to store model checkpoints"""
     root_dir=os.getcwd()
     
-    """Init Dataset"""
-    # train_ds = configureDataset(TRAIN_DIR, train=True)
-    # test_ds  = configureDataset(TEST_DIR, train=False)
-
     """CheckPoint Create"""
     checkpoint_path = utils.createNewDir(root_dir, "checkpoints")
 
@@ -209,7 +131,6 @@ if __name__=="__main__":
                                         model=_deq,
                                         optimizer=optimizer_deq)
     
-    # TODO
     if(TRAIN_LIN):
         train_summary_writer_lin, test_summary_writer_lin, logdir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="tensorboard")
         print('tensorboard --logdir={}'.format(logdir_lin))
@@ -361,7 +282,6 @@ if __name__=="__main__":
     def train(module="module",
                 train_step="train_step", test_step="test_step",
                 train_loss="train_loss", test_loss="test_loss",
-                # train_ds = "train_ds", test_ds = "test_ds", # TODO model verification
                 train_summary_writer = "train_summary_writer",
                 test_summary_writer = "test_summary_writer",
                 ckpt = "ckpt",
@@ -380,7 +300,6 @@ if __name__=="__main__":
         if module == "lin":
             EPOCHS = 220000
 
-        # TODO model verification
         #########################################
         for epoch in range(EPOCHS): # ACTUALLY iteraion, NOT Epoch in this paper, 
 
@@ -439,51 +358,16 @@ if __name__=="__main__":
             
             ckpt.epoch.assign_add(1)
 
-            if ckpt.epoch == 1 or ckpt.epoch % 10000 == 0:
-                save_path =  ckpt_manager.save()
-                print("Saved checkpoint for step {}: {}".format(int(ckpt.epoch), save_path))
-        #########################################
-
-        # for epoch in range(EPOCHS):
-
-        #     start = time.perf_counter()
-
-        #     train_loss.reset_states()
-        #     test_loss.reset_states()
-
-        #     for step, hdrs in enumerate(tqdm(train_ds)):
-                
-
-        #         train_step(hdrs)
-
-        #     with train_summary_writer.as_default():
-        #         tf.summary.scalar('loss', train_loss.result(), step=epoch+1)
-
-        #     for step, hdrs in enumerate(tqdm(test_ds)):
-                
-        #         test_step(hdrs)
-
-        #     with test_summary_writer.as_default():
-        #         tf.summary.scalar('loss', test_loss.result(), step=epoch+1)
-
-        #     print('IN {}, Epoch: {}, Train Loss: {}, Test Loss: {}'.format(module, epoch+1, train_loss.result(), test_loss.result()))
+            # if ckpt.epoch == 1 or ckpt.epoch % 10000 == 0:
+            save_path =  ckpt_manager.save()
+            print("Saved checkpoint for step {}: {}".format(int(ckpt.epoch), save_path))
         
-        #     print("Spends time : {} seconds in Epoch number {}".format(time.perf_counter() - start,epoch+1))
-            
-        #     ckpt.epoch.assign_add(1)
-
-        #     if int(ckpt.epoch) % 10 == 0:
-        #         save_path =  ckpt_manager.save()
-        #         print("Saved checkpoint for step {}: {}".format(int(ckpt.epoch), save_path))
-
     print("시작")
-    # isFirst = True
 
     if TRAIN_DEQ:
         train(module="deq",
                 train_step=deq_train_step, test_step=deq_test_step, 
                 train_loss=train_loss_deq, test_loss=test_loss_deq,
-                # train_ds = train_ds, test_ds = test_ds, # TODO model verification
                 train_summary_writer = train_summary_writer_deq,
                 test_summary_writer = test_summary_writer_deq,
                 ckpt = ckpt_deq,
@@ -494,7 +378,6 @@ if __name__=="__main__":
         train(module="lin",
                 train_step=lin_train_step, test_step=lin_test_step, 
                 train_loss=train_loss_lin, test_loss=test_loss_lin,
-                # train_ds = train_ds, test_ds = test_ds, # TODO model verification
                 train_summary_writer = train_summary_writer_lin,
                 test_summary_writer = test_summary_writer_lin,
                 ckpt = ckpt_lin,
@@ -504,7 +387,6 @@ if __name__=="__main__":
         train(module="hal",
                 train_step=hal_train_step, test_step=hal_test_step,  
                 train_loss=train_loss_hal, test_loss=test_loss_hal,
-                # train_ds = train_ds, test_ds = test_ds,
                 train_summary_writer = train_summary_writer_hal,
                 test_summary_writer = test_summary_writer_hal,
                 ckpt = ckpt_hal,
