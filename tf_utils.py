@@ -2,8 +2,8 @@ import tensorflow as tf
 import utils
 
 def log10(x):
-    numerator = tf.log(x)
-    denominator = tf.log(tf.constant(10, dtype=numerator.dtype))
+    numerator = tf.math.log(x)
+    denominator = tf.math.log(tf.constant(10, dtype=numerator.dtype))
     return numerator / denominator
     
 def get_tensor_shape(x):
