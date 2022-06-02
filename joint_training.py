@@ -17,6 +17,15 @@ import hallucination_net as hal
 
 from vgg16 import Vgg16
 
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+# Restrict TensorFlow to only use the first GPU
+    try:
+        tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+    except RuntimeError as e:
+        # Visible devices must be set at program startup
+        print(e)
+
 AUTO = tf.data.AUTOTUNE
 
 # HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
@@ -75,7 +84,7 @@ def _preprocessing(hdr, crf, t):
         jpeg_img_list.append(II)
     jpeg_img = tf.stack(jpeg_img_list, 0)
     jpeg_img_float = tf.cast(jpeg_img, tf.float32) / 255.0
-
+    
     # loss mask to exclude over-/under-exposed regions
     gray = tf.image.rgb_to_grayscale(jpeg_img)
     over_exposed = tf.cast(tf.greater_equal(gray, 249), tf.float32)
@@ -159,76 +168,79 @@ if __name__=="__main__":
     #     plt.imshow(image[i])
     #     plt.axis('off')
     # plt.show()
-    
-    with tf.device('/GPU:0'):
             
-        @tf.function
-        def train_step(ds, invcrf):
-            ldr, jpeg_img_float, clipped_hdr_t, hdr_t, loss_mask = ds
+    @tf.function
+    def train_step(ds, invcrf):
+        ldr, jpeg_img_float, clipped_hdr_t, hdr_t, loss_mask = ds
 
-            thr = 0.12
-            alpha = tf.reduce_max(clipped_hdr_t, axis=[3])
-            alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + thr) / thr)
-            alpha = tf.reshape(alpha, [-1, tf.shape(clipped_hdr_t)[1], tf.shape(clipped_hdr_t)[2], 1])
-            alpha = tf.tile(alpha, [1, 1, 1, 3])
+        thr = 0.12
+        alpha = tf.reduce_max(clipped_hdr_t, axis=[3])
+        alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + thr) / thr)
+        alpha = tf.reshape(alpha, [-1, tf.shape(clipped_hdr_t)[1], tf.shape(clipped_hdr_t)[2], 1])
+        alpha = tf.tile(alpha, [1, 1, 1, 3])
+        
+        with tf.GradientTape() as tape:
             
-            with tf.GradientTape() as tape:
-                
-                # Dequantization
-                pred_deq = _deq(jpeg_img_float, training= True)
-                C_pred = tf.clip_by_value(pred_deq, 0, 1)
-                l2loss_deq = tf_utils.get_l2_loss_with_mask(C_pred, ldr)
-                loss_deq = tf.reduce_mean(tf.multiply(l2loss_deq,loss_mask))
+            # Dequantization
+            pred_deq = _deq(jpeg_img_float, training= True)
+            C_pred = tf.clip_by_value(pred_deq, 0, 1)
+            l2loss_deq = tf_utils.get_l2_loss_with_mask(C_pred, ldr)
+            loss_deq = tf.multiply(l2loss_deq,loss_mask)
 
-                # Linearization
-                pred_invcrf = _lin(ldr, training= True)
-                B_pred = tf_utils.apply_rf(ldr, pred_invcrf)
-                crf_loss = tf.reduce_mean(tf.square(pred_invcrf - invcrf), axis=1, keepdims=True)
-                l2loss_lin = tf_utils.get_l2_loss_with_mask(B_pred, clipped_hdr_t)
-                loss_lin = tf.reduce_mean(tf.multiply(10. * l2loss_lin + crf_loss, loss_mask))
+            # Linearization
+            pred_invcrf = _lin(ldr, training= True)
+            B_pred = tf_utils.apply_rf(ldr, pred_invcrf)
+            crf_loss = tf.reduce_mean(tf.square(pred_invcrf - invcrf), axis=1, keepdims=True)
+            l2loss_lin = tf_utils.get_l2_loss_with_mask(B_pred, clipped_hdr_t)
+            loss_lin = tf.multiply(10. * l2loss_lin + crf_loss, loss_mask)
 
-                # Hallucination
-                pred_hal = _hal(clipped_hdr_t, training= True)
-                A_pred = (clipped_hdr_t) + alpha * pred_hal
-                vgg_pool1, vgg_pool2, vgg_pool3 = vgg(tf.math.log(1.0+10.0*A_pred)/tf.math.log(1.0+10.0))
-                vgg2_pool1, vgg2_pool2, vgg2_pool3 = vgg2(tf.math.log(1.0+10.0*hdr_t)/tf.math.log(1.0+10.0))
+            # Hallucination
+            bgr_hdr_t = tf_utils.rgb2bgr(hdr_t)
+            bgr_clipped_hdr_t = tf_utils.rgb2bgr(clipped_hdr_t)
 
-                perceptual_loss = tf.reduce_mean(tf.abs((vgg_pool1 - vgg2_pool1)), axis=[1, 2, 3], keepdims=True)
-                perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool2 - vgg2_pool2)), axis=[1, 2, 3], keepdims=True)
-                perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool3 - vgg2_pool3)), axis=[1, 2, 3], keepdims=True)
+            pred_hal = _hal(bgr_clipped_hdr_t, training= True)
+            A_pred = (bgr_clipped_hdr_t) + alpha * pred_hal
+            vgg_pool1, vgg_pool2, vgg_pool3 = vgg(tf.math.log(1.0+10.0*A_pred)/tf.math.log(1.0+10.0))
+            vgg2_pool1, vgg2_pool2, vgg2_pool3 = vgg2(tf.math.log(1.0+10.0*bgr_hdr_t)/tf.math.log(1.0+10.0))
 
-                y_final_gamma = tf.math.log(1.0+10.0*A_pred) /tf.math.log(1.0+10.0)
-                hdr_t_gamma   = tf.math.log(1.0+10.0*hdr_t)  /tf.math.log(1.0+10.0)
+            perceptual_loss = tf.reduce_mean(tf.abs((vgg_pool1 - vgg2_pool1)), axis=[1, 2, 3], keepdims=True)
+            perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool2 - vgg2_pool2)), axis=[1, 2, 3], keepdims=True)
+            perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool3 - vgg2_pool3)), axis=[1, 2, 3], keepdims=True)
 
-                l1loss_hal = tf.reduce_mean(tf.abs(y_final_gamma - hdr_t_gamma), axis=[1, 2, 3], keepdims=True)
-                y_final_gamma_pad_x = tf.pad(y_final_gamma, [[0, 0], [0, 1], [0, 0], [0, 0]], 'SYMMETRIC')
-                y_final_gamma_pad_y = tf.pad(y_final_gamma, [[0, 0], [0, 0], [0, 1], [0, 0]], 'SYMMETRIC')
-                tv_loss_x = tf.reduce_mean(tf.abs(y_final_gamma_pad_x[:, 1:] - y_final_gamma_pad_x[:, :-1]))
-                tv_loss_y = tf.reduce_mean(tf.abs(y_final_gamma_pad_y[:, :, 1:] - y_final_gamma_pad_y[:, :, :-1]))
-                tv_loss = tv_loss_x + tv_loss_y
-                loss_hal   = tf.reduce_mean((l1loss_hal + 0.001 * perceptual_loss + 0.1 * tv_loss)*loss_mask)
-                
-                total_loss = loss_deq + loss_lin + loss_hal
-                # total_loss = loss_deq + 10. * loss_lin + crf_loss + loss_hal + 0.001 * perceptual_loss + 0.1 * tv_loss
-                # total_loss = tf.reduce_mean(tf.multiply(total_loss, loss_mask))
+            y_final_gamma = tf.math.log(1.0+10.0*A_pred) /tf.math.log(1.0+10.0)
+            hdr_t_gamma   = tf.math.log(1.0+10.0*bgr_hdr_t)  /tf.math.log(1.0+10.0)
+
+            l1loss_hal = tf.reduce_mean(tf.abs(y_final_gamma - hdr_t_gamma), axis=[1, 2, 3], keepdims=True)
+            y_final_gamma_pad_x = tf.pad(y_final_gamma, [[0, 0], [0, 1], [0, 0], [0, 0]], 'SYMMETRIC')
+            y_final_gamma_pad_y = tf.pad(y_final_gamma, [[0, 0], [0, 0], [0, 1], [0, 0]], 'SYMMETRIC')
+            tv_loss_x = tf.reduce_mean(tf.abs(y_final_gamma_pad_x[:, 1:] - y_final_gamma_pad_x[:, :-1]))
+            tv_loss_y = tf.reduce_mean(tf.abs(y_final_gamma_pad_y[:, :, 1:] - y_final_gamma_pad_y[:, :, :-1]))
+            tv_loss = tv_loss_x + tv_loss_y
+            loss_hal   = tf.multiply((l1loss_hal + 0.001 * perceptual_loss + 0.1 * tv_loss), loss_mask)
             
-            gradients = tape.gradient(total_loss, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables)
-            optimizer_jnt.apply_gradients(zip(gradients, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables))
-            
-            train_loss_deq(loss_deq)
-            train_loss_lin(loss_lin)
-            train_crf_loss(crf_loss)
-            train_loss_hal(loss_hal)
-            train_loss_jnt(total_loss)
+            total_loss = loss_deq + loss_lin + loss_hal
+            # total_loss = loss_deq + 10. * loss_lin + crf_loss + loss_hal + 0.001 * perceptual_loss + 0.1 * tv_loss
+            # total_loss = tf.reduce_mean(tf.multiply(total_loss, loss_mask))
+        
+        gradients = tape.gradient(total_loss, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables)
+        optimizer_jnt.apply_gradients(zip(gradients, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables))
+        
+        train_loss_deq(loss_deq)
+        train_loss_lin(loss_lin)
+        train_crf_loss(crf_loss)
+        train_loss_hal(loss_hal)
+        train_loss_jnt(total_loss)
 
-            return [C_pred, B_pred, A_pred, alpha]
+        A_pred = tf_utils.bgr2rgb(A_pred)
 
-        @tf.function
-        def test_step(gt):
-            
-            pred = _deq(gt, training= False)
-            l1_loss = tf.reduce_mean(tf.square(pred - gt))
-            test_loss_deq(l1_loss)
+        return [C_pred, B_pred, A_pred, alpha]
+
+    @tf.function
+    def test_step(gt):
+        # NO USED, NO TYPED
+        pred = _deq(gt, training= False)
+        l1_loss = tf.reduce_mean(tf.square(pred - gt))
+        test_loss_deq(l1_loss)
 
     train_loss = [train_loss_deq, train_loss_lin, train_loss_hal, train_loss_jnt]
     ckpt = [ckpt_deq, ckpt_lin, ckpt_hal]
@@ -286,8 +298,7 @@ if __name__=="__main__":
                 tf.summary.image('hdr_t', _hdr_t, step=epoch)
                 tf.summary.image('alpha', pred[3], step=epoch)
                 tf.summary.image('A_pred', pred[2], step=epoch)
-                
-
+            
             print(f'[Joint training], iteration: {epoch}, total Loss: {train_loss_jnt.result()}\n \
                     deq Loss: {train_loss_deq.result()} lin Loss: {train_loss_lin.result()}, hal Loss: {train_loss_hal.result()}')
             print("Spends time : {} seconds in Epoch number {}".format(time.perf_counter() - start,epoch))
@@ -295,7 +306,7 @@ if __name__=="__main__":
             for c in ckpt:
                 c.epoch.assign_add(1)
 
-            if epoch == 1 or epoch % 10000 == 0:
+            if epoch == 1 or epoch % 1000 == 0:
                 for cm in ckpt_manager:
                     save_path =  cm.save()
                     print(f"Saved checkpoint for step {epoch}: {save_path}")

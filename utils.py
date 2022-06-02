@@ -1,5 +1,6 @@
 import os
 from datetime import datetime as dt
+import cv2
 
 def static_var(**kwargs):
     def decorate(func):
@@ -37,3 +38,10 @@ def createTrainValidationDirpath(root_dir, createDir = False):
         val_dir = os.path.join(root_dir, "val") 
 
     return train_dir, val_dir
+
+def writeHDR(arr, outfilename, imgshape):
+
+    ext_name = outfilename.split(".")[1]
+    
+    if ext_name == "hdr":
+        cv2.imwrite(outfilename, arr.copy())

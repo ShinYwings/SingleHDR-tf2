@@ -130,7 +130,7 @@ dmypy.json
 
 checkpoints/
 dataset/
-DatasetGeneration/
+testImg/
 outputImg/
 tensorboard/
 tf_records/
@@ -139,3 +139,8 @@ vgg16_places365_weights.npy
 checkpoints_init_states/
 result_checkpoints/
 output_imgs/
+HDR-Real-output/
+
+crf.txt
+crf_net_v2.npy
+dorfCurves.txt

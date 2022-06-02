@@ -1,6 +1,15 @@
 import tensorflow as tf
 import utils
 
+def rgb2bgr(rgb):
+    red, green, blue = tf.split(rgb, 3, 3)
+    bgr = tf.concat([blue, green, red], axis=3)
+    return bgr
+
+def bgr2rgb(bgr):
+    blue, green, red = tf.split(bgr, 3, 3)
+    rgb = tf.concat([red, green, blue], axis=3)
+    return rgb
 def log10(x):
     numerator = tf.math.log(x)
     denominator = tf.math.log(tf.constant(10, dtype=numerator.dtype))

@@ -21,7 +21,7 @@ from vgg16 import Vgg16
 AUTO = tf.data.AUTOTUNE
 
 # HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
-HDR_PREFIX = "/home/cvnar2/Desktop/nvme/SingleHDR_training_data/HDR-Synth"
+HDR_PREFIX = "/home/cvnar2/Desktop/nvme/singleHDR/SingleHDR_training_data/HDR-Synth"
 """
 BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
 """
@@ -35,14 +35,14 @@ HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
 
 CURRENT_WORKINGDIR = os.getcwd()
 
-TRAIN_DEQ = True
+TRAIN_DEQ = False
 TRAIN_LIN = False
-TRAIN_HAL = False
+TRAIN_HAL = True
 
 # Absolute path
-DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq") if TRAIN_DEQ else None
-LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin") if TRAIN_LIN else None
-HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal") if TRAIN_HAL else None
+DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq")
+LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
+HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal")
 
 def _preprocessing(module, hdr, crf, t):
     b, h, w, c, = tf_utils.get_tensor_shape(hdr)
@@ -101,6 +101,15 @@ def _preprocessing(module, hdr, crf, t):
         exit(0)
     
 if __name__=="__main__":
+
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+    # Restrict TensorFlow to only use the first GPU
+        try:
+            tf.config.experimental.set_visible_devices(gpus[1], 'GPU')
+        except RuntimeError as e:
+            # Visible devices must be set at program startup
+            print(e)
 
     """Path for tf.summary.FileWriter and to store model checkpoints"""
     root_dir=os.getcwd()
@@ -171,7 +180,7 @@ if __name__=="__main__":
     #     plt.axis('off')
     # plt.show()
     
-    with tf.device('/GPU:0'):
+    with tf.device('/GPU:1'):
 
         _clip = lambda x: tf.clip_by_value(x, 0, 1)
 
@@ -185,7 +194,7 @@ if __name__=="__main__":
                 pred = _deq(jpeg_img_float, training= True)
                 pred = _clip(pred)
                 loss = tf_utils.get_l2_loss_with_mask(pred, ldr)
-                deq_loss = tf.reduce_mean(tf.multiply(loss,loss_mask))
+                deq_loss = tf.multiply(loss,loss_mask)
             
             gradients_deq = deq_tape.gradient(deq_loss, _deq.trainable_variables)
             optimizer_deq.apply_gradients(zip(gradients_deq, _deq.trainable_variables))
@@ -195,7 +204,7 @@ if __name__=="__main__":
 
         @tf.function
         def deq_test_step(gt):
-            
+            # NO USED, NO TYPED
             pred = _deq(gt, training= False)
             l1_loss = tf.reduce_mean(tf.square(pred - gt))
             test_loss_deq(l1_loss)
@@ -212,7 +221,7 @@ if __name__=="__main__":
                 pred_lin_ldr = tf_utils.apply_rf(ldr, pred_invcrf)
                 crf_loss = tf.reduce_mean(tf.square(pred_invcrf - invcrf), axis=1, keepdims=True)
                 loss = tf_utils.get_l2_loss_with_mask(pred_lin_ldr, clipped_hdr_t)
-                lin_loss = tf.reduce_mean(tf.multiply(tf.add(loss, 0.1*crf_loss),loss_mask))
+                lin_loss = tf.multiply(tf.add(loss, 0.1*crf_loss),loss_mask)
             
             gradients_lin = lin_tape.gradient(lin_loss, _lin.trainable_variables)
             optimizer_lin.apply_gradients(zip(gradients_lin, _lin.trainable_variables))
@@ -222,7 +231,7 @@ if __name__=="__main__":
 
         @tf.function
         def lin_test_step(gt):
-            
+            # NO USED, NO TYPED
             pred = _lin(gt, training= False)
             l1_loss = tf.reduce_mean(tf.square(pred - gt))
             test_loss_lin(l1_loss)
@@ -242,39 +251,47 @@ if __name__=="__main__":
             alpha = tf.reshape(alpha, [-1, tf.shape(clipped_hdr_t)[1], tf.shape(clipped_hdr_t)[2], 1])
             alpha = tf.tile(alpha, [1, 1, 1, 3])
 
-            with tf.GradientTape() as hal_tape:
-                pred = _hal(clipped_hdr_t, training= True)
+            bgr_hdr_t = tf_utils.rgb2bgr(hdr_t)
+            bgr_clipped_hdr_t = tf_utils.rgb2bgr(clipped_hdr_t)
 
-                y_final = (clipped_hdr_t) + alpha * pred
+            with tf.GradientTape() as hal_tape:
+                pred = _hal(bgr_clipped_hdr_t, training= True)
+                y_final = (bgr_clipped_hdr_t) + alpha * pred
             
                 vgg_pool1, vgg_pool2, vgg_pool3 = vgg(tf.math.log(1.0+10.0*y_final)/tf.math.log(1.0+10.0))
-                vgg2_pool1, vgg2_pool2, vgg2_pool3 = vgg2(tf.math.log(1.0+10.0*hdr_t)/tf.math.log(1.0+10.0))
+                vgg2_pool1, vgg2_pool2, vgg2_pool3 = vgg2(tf.math.log(1.0+10.0*bgr_hdr_t)/tf.math.log(1.0+10.0))
 
                 perceptual_loss = tf.reduce_mean(tf.abs((vgg_pool1 - vgg2_pool1)), axis=[1, 2, 3], keepdims=True)
                 perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool2 - vgg2_pool2)), axis=[1, 2, 3], keepdims=True)
                 perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool3 - vgg2_pool3)), axis=[1, 2, 3], keepdims=True)
 
                 y_final_gamma = tf.math.log(1.0+10.0*y_final)/tf.math.log(1.0+10.0)
-                hdr_t_gamma = tf.math.log(1.0+10.0*hdr_t)/tf.math.log(1.0+10.0)
+                hdr_t_gamma = tf.math.log(1.0+10.0*bgr_hdr_t)/tf.math.log(1.0+10.0)
 
                 loss = tf.reduce_mean(tf.abs(y_final_gamma - hdr_t_gamma), axis=[1, 2, 3], keepdims=True)
                 y_final_gamma_pad_x = tf.pad(y_final_gamma, [[0, 0], [0, 1], [0, 0], [0, 0]], 'SYMMETRIC')
                 y_final_gamma_pad_y = tf.pad(y_final_gamma, [[0, 0], [0, 0], [0, 1], [0, 0]], 'SYMMETRIC')
+
+                # Image denoising on 2D image of an anisotropic version  (NOT histogram matching loss)
+                # https://en.wikipedia.org/wiki/Total_variation_denoising
                 tv_loss_x = tf.reduce_mean(tf.abs(y_final_gamma_pad_x[:, 1:] - y_final_gamma_pad_x[:, :-1]))
                 tv_loss_y = tf.reduce_mean(tf.abs(y_final_gamma_pad_y[:, :, 1:] - y_final_gamma_pad_y[:, :, :-1]))
-                tv_loss = tv_loss_x + tv_loss_y
+                tv_loss   = tv_loss_x + tv_loss_y
 
-                hal_loss = tf.reduce_mean((loss + 0.001 * perceptual_loss + 0.1 * tv_loss)*loss_mask)
+                hal_loss = tf.multiply((loss + 0.001 * perceptual_loss + 0.1 * tv_loss),loss_mask)
 
             gradients_hal = hal_tape.gradient(hal_loss, _hal.trainable_variables)
             optimizer_hal.apply_gradients(zip(gradients_hal, _hal.trainable_variables))
             train_loss_hal(hal_loss)
+            
+            rgb_pred = tf_utils.bgr2rgb(pred)
+            rgb_y_final = tf_utils.bgr2rgb(y_final)
 
-            return [pred, y_final, alpha]
+            return [rgb_pred, rgb_y_final, alpha]
 
         @tf.function
         def hal_test_step(gt):
-            
+            # NO USED, NO TYPED
             pred = _hal(gt, training= False)
             l1_loss = tf.reduce_mean(tf.abs(pred - gt))
             test_loss_hal(l1_loss)
@@ -316,51 +333,40 @@ if __name__=="__main__":
             
             pred = train_step(preprocessed_dataset)
 
-            with train_summary_writer.as_default():
-                
-                tf.summary.scalar('loss', train_loss.result(), step=epoch+1)
-                
-                if module == "deq":
-                    ldr            = preprocessed_dataset[0]
-                    jpeg_img_float = preprocessed_dataset[1]
-                    tf.summary.image('ldr', ldr, step=epoch+1)
-                    tf.summary.image('jpeg_img_float', jpeg_img_float, step=epoch+1)
-                    tf.summary.image('pred', pred[0], step=epoch+1)
-
-                if module == "lin":
-                    ldr           = preprocessed_dataset[0]
-                    clipped_hdr_t = preprocessed_dataset[1]
-                    tf.summary.image('ldr', ldr, step=epoch+1)
-                    tf.summary.image('pred_lin_ldr', pred[0], step=epoch+1)
-                    tf.summary.scalar('crf_loss', pred[1], step=epoch+1)
-                    tf.summary.image('clipped_hdr_t', clipped_hdr_t, step=epoch+1)
-                
-                if module == "hal":
-                    _hdr_t        = preprocessed_dataset[0]
-                    clipped_hdr_t = preprocessed_dataset[1]
-                    tf.summary.image('hdr_t', _hdr_t, step=epoch+1)
-                    tf.summary.image('y', pred[1], step=epoch+1)
-                    tf.summary.image('clipped_hdr_t', clipped_hdr_t, step=epoch+1)
-                    tf.summary.image('alpha', pred[2], step=epoch+1)
-                    tf.summary.image('y_predict', pred[0], step=epoch+1)
-                    tf.summary.image('log_hdr_t', tf.math.log(1.0+10.0*_hdr_t)/tf.math.log(1.0+10.0), step=epoch+1)
-                    tf.summary.image('log_y', tf.math.log(1.0+10.0*pred[1])/tf.math.log(1.0+10.0), step=epoch+1)
-                    tf.summary.image('log_clipped_hdr_t', tf.math.log(1.0+10.0*clipped_hdr_t)/tf.math.log(1.0+10.0), step=epoch+1)
-
-                loss_mask = preprocessed_dataset[2]
-                tf.summary.scalar('loss_mask 0', tf.squeeze(loss_mask[0]), step=epoch+1)
-                tf.summary.scalar('loss_mask 1', tf.squeeze(loss_mask[1]), step=epoch+1)
-                tf.summary.scalar('loss_mask 2', tf.squeeze(loss_mask[2]), step=epoch+1)
-
-            print('IN {}, iteration: {}, Train Loss: {}'.format(module, epoch+1, train_loss.result()))
+            print('IN {}, iteration: {}, Train Loss: {}'.format(module, epoch, train_loss.result()))
         
-            print("Spends time : {} seconds in Epoch number {}".format(time.perf_counter() - start,epoch+1))
+            print("Spends time : {} seconds in global Epoch {}".format(time.perf_counter() - start, int(ckpt.epoch)))
             
             ckpt.epoch.assign_add(1)
 
-            # if ckpt.epoch == 1 or ckpt.epoch % 10000 == 0:
-            save_path =  ckpt_manager.save()
-            print("Saved checkpoint for step {}: {}".format(int(ckpt.epoch), save_path))
+            if ckpt.epoch == 1 or ckpt.epoch % 1000 == 0:
+                with train_summary_writer.as_default():
+                    tf.summary.scalar('loss', train_loss.result(), step=epoch+1)
+                    if module == "deq":
+                        ldr            = preprocessed_dataset[0]
+                        jpeg_img_float = preprocessed_dataset[1]
+                        tf.summary.image('ldr', ldr, step=epoch+1)
+                        tf.summary.image('jpeg_img_float', jpeg_img_float, step=epoch+1)
+                        tf.summary.image('pred', pred[0], step=epoch+1)
+
+                    if module == "lin":
+                        ldr           = preprocessed_dataset[0]
+                        clipped_hdr_t = preprocessed_dataset[1]
+                        tf.summary.image('ldr', ldr, step=epoch+1)
+                        tf.summary.image('pred_lin_ldr', pred[0], step=epoch+1)
+                        tf.summary.scalar('crf_loss', pred[1], step=epoch+1)
+                        tf.summary.image('clipped_hdr_t', clipped_hdr_t, step=epoch+1)
+                    
+                    if module == "hal":
+                        _hdr_t        = preprocessed_dataset[0]
+                        clipped_hdr_t = preprocessed_dataset[1]
+                        tf.summary.image('hdr_t', _hdr_t, step=epoch+1)
+                        tf.summary.image('y', pred[1], step=epoch+1)
+                        tf.summary.image('clipped_hdr_t', clipped_hdr_t, step=epoch+1)
+                        tf.summary.image('alpha', pred[2], step=epoch+1)
+                        tf.summary.image('y_predict', pred[0], step=epoch+1)
+                save_path =  ckpt_manager.save()
+                print("Saved checkpoint for step {}: {}".format(int(ckpt.epoch), save_path))
         
     print("시작")
 

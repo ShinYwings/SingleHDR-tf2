@@ -149,7 +149,7 @@ class model(Model):
         x_in = tf.scalar_mul(255.0, input_layer)
 
         # Convert RGB to BGR
-        red, green, blue = tf.split(x_in, 3, 3)
+        blue, green, red = tf.split(x_in, 3, 3)
         bgr = tf.concat([blue - self.VGG_MEAN[0], green - self.VGG_MEAN[1], red - self.VGG_MEAN[2]], axis=3)
 
         # Encoder

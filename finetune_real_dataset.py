@@ -39,26 +39,7 @@ DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq")
 LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
 HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal")
 REF_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/ref")
-
-# def hdr_logCompression(x, validDR = 5000.):
-
-#     # disentangled way
-#     x = tf.math.multiply(validDR, x)
-#     numerator = tf.math.log(1.+ x)
-#     denominator = tf.math.log(1.+validDR)
-#     output = tf.math.divide(numerator, denominator) - 1.
-
-#     return output
-
-# def hdr_logDecompression(x, validDR = 5000.):
-
-#     x = x + 1.
-#     denominator = tf.math.log(1.+validDR)
-#     x = tf.math.multiply(x, denominator)
-#     x = tf.math.exp(x)
-#     output = tf.math.divide(x, validDR)
-    
-#     return output
+# REF_PRETRAINED_DIR = None
     
 def _parse_function(example_proto):
     # Parse the input `tf.train.Example` proto using the dictionary above.
@@ -98,27 +79,20 @@ def configureDataset(dirpath):
     ds = tf.data.TFRecordDataset(filenames=tfrecords_list, num_parallel_reads=AUTO, compression_type="GZIP")
     ds = ds.map(_parse_function, num_parallel_calls=AUTO)
 
-    # if train:
-    #     ds = ds.shuffle(buffer_size = 10000).batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
-    # else:
-    #     ds = ds.batch(batch_size=BATCH_SIZE, drop_remainder=True).prefetch(AUTO)
-    # deq_ds, lin_ds = ds, ds
-    
     ds  = ds.shuffle(buffer_size = len(tfrecords_list)).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
 
     return ds
         
 if __name__=="__main__":
-
-    # gpus = tf.config.experimental.list_physical_devices('GPU')
-    # if gpus:
-    #     for gpu in gpus:
-    #         tf.config.experimental.set_memory_growth(gpu, True)
-
     
-    """Init Dataset"""
-    # train_ds = configureDataset(TRAIN_DIR, train=True)
-    # test_ds  = configureDataset(DATASET_DIR, train=False)
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+    # Restrict TensorFlow to only use the first GPU
+        try:
+            tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+        except RuntimeError as e:
+            # Visible devices must be set at program startup
+            print(e)
     
     ds  = configureDataset(DATASET_DIR)
 
@@ -189,54 +163,56 @@ if __name__=="__main__":
     #     i+=2
     # plt.show()
     
-    with tf.device('/GPU:0'):
+    @tf.function
+    def train_step(ldr, hdr):
         
-        @tf.function
-        def train_step(ldr, hdr):
-            
-            denominator = 1 / tf.math.log(1.0 + 10.0)
-            
-            with tf.GradientTape() as tape:
+        denominator = 1 / tf.math.log(1.0 + 10.0)
+        
+        with tf.GradientTape() as tape:
 
-                # Dequantization
-                pred_deq = _deq(ldr, training= True)
-                C_pred = tf.clip_by_value(pred_deq, 0, 1)
+            # Dequantization
+            pred_deq = _deq(ldr, training= True)
+            C_pred = tf.clip_by_value(pred_deq, 0, 1)
 
-                # Linearization
-                pred_invcrf = _lin(C_pred, training= True)
-                B_pred = tf_utils.apply_rf(C_pred, pred_invcrf)
+            # Linearization
+            pred_invcrf = _lin(C_pred, training= True)
+            B_pred = tf_utils.apply_rf(C_pred, pred_invcrf)
 
-                # Hallucination
-                alpha = tf.reduce_max(B_pred, axis=[3])
-                alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + THRESHOLD) / THRESHOLD)
-                alpha = tf.reshape(alpha, [-1, tf.shape(B_pred)[1], tf.shape(B_pred)[2], 1])
-                alpha = tf.tile(alpha, [1, 1, 1, 3])
+            # Hallucination
+            alpha = tf.reduce_max(B_pred, axis=[3])
+            alpha = tf.minimum(1.0, tf.maximum(0.0, alpha - 1.0 + THRESHOLD) / THRESHOLD)
+            alpha = tf.reshape(alpha, [-1, tf.shape(B_pred)[1], tf.shape(B_pred)[2], 1])
+            alpha = tf.tile(alpha, [1, 1, 1, 3])
 
-                hal_res = _hal(B_pred, training= True)
-                A_pred = (B_pred) + alpha * hal_res
+            bgr_B_pred = tf_utils.rgb2bgr(B_pred)
 
-                hdr_gamma = tf.math.log(1.0 + 10.0 * hdr) * denominator
+            hal_res = _hal(bgr_B_pred, training= True)
+            A_pred = (bgr_B_pred) + alpha * hal_res
 
-                # Refinement
-                refinement_output = _ref(tf.concat([A_pred, B_pred, C_pred], -1), training=True)
-                refinement_output = refinement_output / (1e-6 + tf.reduce_mean(refinement_output, axis=[1, 2, 3], keepdims=True)) * 0.5
-                refinement_output_gamma = tf.math.log(1.0 + 10.0 * refinement_output) * denominator
-                loss = tf.reduce_mean(tf.abs(refinement_output_gamma - hdr_gamma))
-            
-            gradients = tape.gradient(loss, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables+_ref.trainable_variables)
-            optimizer_ref.apply_gradients(zip(gradients, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables+_ref.trainable_variables))
-            
-            train_loss_ref(loss)
+            A_pred = tf_utils.bgr2rgb(A_pred)
 
-            # return [A_pred_loss, C_pred, B_pred, A_pred, refinement_output]
-            return [C_pred, B_pred, A_pred, refinement_output]
+            hdr_gamma = tf.math.log(1.0 + 10.0 * hdr) * denominator
 
-        @tf.function
-        def test_step(gt):
-            
-            pred = _deq(gt, training= False)
-            l1_loss = tf.reduce_mean(tf.square(pred - gt))
-            test_loss_ref(l1_loss)
+            # Refinement
+            refinement_output = _ref(tf.concat([A_pred, B_pred, C_pred], -1), training=True)
+            refinement_output = refinement_output / (1e-6 + tf.reduce_mean(refinement_output, axis=[1, 2, 3], keepdims=True)) * 0.5
+            refinement_output_gamma = tf.math.log(1.0 + 10.0 * refinement_output) * denominator
+            loss = tf.abs(refinement_output_gamma - hdr_gamma)
+        
+        gradients = tape.gradient(loss, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables+_ref.trainable_variables)
+        optimizer_ref.apply_gradients(zip(gradients, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables+_ref.trainable_variables))
+        
+        train_loss_ref(loss)
+
+        # return [A_pred_loss, C_pred, B_pred, A_pred, refinement_output]
+        return [C_pred, B_pred, A_pred, refinement_output]
+
+    @tf.function
+    def test_step(gt):
+        # NO USED, NO TYPED
+        pred = _deq(gt, training= False)
+        l1_loss = tf.square(pred - gt)
+        test_loss_ref(l1_loss)
     
     ckpts = [ckpt_deq, ckpt_lin, ckpt_hal, ckpt_ref]
     ckpt_managers = [ckpt_manager_deq, ckpt_manager_lin, ckpt_manager_hal, ckpt_manager_ref]
