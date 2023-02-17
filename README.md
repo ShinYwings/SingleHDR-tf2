@@ -11,7 +11,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 
 - I have modified some original codes that do not match the paper's description or are potentially error-prone.
   - Linearization-Net
-    - Original code (@linearization_net.py)
+    - linearization_net.py (original code)
 
       ```diff
       def histogram_layer(img, max_bin):
@@ -27,7 +27,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
           # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
       ```
 
-    - This code (@linearization_net.py)
+    - linearization_net.py (my code)
 
       ```diff
       def histogram_layer(self, img, max_bin):
@@ -48,7 +48,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
       ```
 
   - Training of the Hallucination-Net
-    - Original code (@train_hallucination_net.py)
+    - train_hallucination_net.py (original code)
 
       ```diff
       299   with tf.variable_scope("Hallucination_Net"):
@@ -68,7 +68,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
       248   perceptual_loss += tf.reduce_mean(tf.abs((vgg.pool3 - vgg2.pool3)), axis=[1, 2, 3], keepdims=True)
       ```
 
-    - This code (@train.py)
+    - train.py (my code)
 
       ```diff
       215   with tf.GradientTape() as hal_tape:
