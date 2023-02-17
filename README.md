@@ -121,7 +121,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
   python joint_training.py --logdir_path "output/hal/ckpt/path" --tfrecords_path "converted/tfrecords/path" --deq_ckpt "pretrained/deq/ckpt" --lin_ckpt "pretrained/lin/ckpt" --deq_ckpt "pretrained/hal/ckpt"
   ```
 
-## Fine-tuning the entire pipeline with Refinement-Net
+## Fine-tuning the entire pipeline with Refinement-Net using real HDR dataset
 
   1. Convert the real HDR-jpg paired data into tfrecords for training.
 

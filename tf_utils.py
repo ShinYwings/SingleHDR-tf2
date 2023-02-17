@@ -1,7 +1,6 @@
 import tensorflow as tf
 import utils
 import os
-import sys
 
 def rgb2bgr(rgb):
     red, green, blue = tf.split(rgb, 3, 3)
