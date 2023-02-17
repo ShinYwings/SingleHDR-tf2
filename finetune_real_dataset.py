@@ -2,14 +2,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 import os
-import numpy as np
 import tensorflow as tf
 import time
-from tqdm import tqdm
 
 import utils
 import tf_utils
-# from random_tone_map import random_tone_map
 
 import dequantization_net as deq
 import linearization_net as lin
@@ -28,7 +25,6 @@ THRESHOLD = 0.12
 
 EPOCHS = 1000
 IMSHAPE = (256,256,3)
-RENDERSHAPE = (64,64,3)
 
 HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
 
@@ -39,7 +35,6 @@ DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq")
 LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
 HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal")
 REF_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/ref")
-# REF_PRETRAINED_DIR = None
     
 def _parse_function(example_proto):
     # Parse the input `tf.train.Example` proto using the dictionary above.

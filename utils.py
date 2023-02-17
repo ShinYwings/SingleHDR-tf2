@@ -24,8 +24,8 @@ def createNewDir(root_path, name=None):
         newpath = os.path.join(root_path, name)
 
     """Create parent path if it doesn't exist"""
-    if not os.path.isdir(newpath):
-        os.mkdir(newpath)
+    os.makedirs(newpath, exist_ok=True)
+    
     return newpath
 
 def createTrainValidationDirpath(root_dir, createDir = False):

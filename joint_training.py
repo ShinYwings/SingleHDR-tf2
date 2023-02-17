@@ -1,13 +1,10 @@
 import logging
-from sys import stderr
 logging.basicConfig(level=logging.INFO)
 
 import os
-import numpy as np
 import tensorflow as tf
 import time
 
-import utils
 from dataset import get_train_dataset, RandDatasetReader
 import tf_utils
 
@@ -17,41 +14,14 @@ import hallucination_net as hal
 
 from vgg16 import Vgg16
 
-gpus = tf.config.experimental.list_physical_devices('GPU')
-if gpus:
-# Restrict TensorFlow to only use the first GPU
-    try:
-        tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
-    except RuntimeError as e:
-        # Visible devices must be set at program startup
-        print(e)
-
 AUTO = tf.data.AUTOTUNE
 
-# HDR_PREFIX = "/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Synth"
-HDR_PREFIX = "/home/cvnar2/Desktop/nvme/singleHDR/SingleHDR_training_data/HDR-Synth"
-
-"""
-BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
-"""
 # Hyper parameters
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 16
-
 EPOCHS = 5000000 # "EPOCHS" means "iteraion", NOT literally "epoch" in this code. 
-
 HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
-
 CURRENT_WORKINGDIR = os.getcwd()
-
-TRAIN_DEQ = True
-TRAIN_LIN = True
-TRAIN_HAL = True
-
-# Absolute path
-DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq") if TRAIN_DEQ else None
-LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin") if TRAIN_LIN else None
-HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal") if TRAIN_HAL else None
 
 def _preprocessing(hdr, crf, t):
     b, h, w, c, = tf_utils.get_tensor_shape(hdr)
@@ -97,64 +67,59 @@ def _preprocessing(hdr, crf, t):
     loss_mask = tf.cast(tf.logical_not(extreme_cases), tf.float32)
 
     return [ldr, jpeg_img_float, clipped_hdr_t, _hdr_t, loss_mask]
-    
-if __name__=="__main__":
 
-    """Path for tf.summary.FileWriter and to store model checkpoints"""
-    root_dir=os.getcwd()
-    
-    """CheckPoint Create"""
-    checkpoint_path = utils.createNewDir(root_dir, "checkpoints")
+def run(args):
+
+    # Absolute path
+    DEQ_PRETRAINED_DIR = args.deq_ckpt
+    LIN_PRETRAINED_DIR = args.lin_ckpt
+    HAL_PRETRAINED_DIR = args.hal_ckpt
 
     _deq  = deq.model()
     _lin = lin.model()
     _hal = hal.model()
-    vgg = Vgg16('vgg16.npy')
-    vgg2 = Vgg16('vgg16.npy')
+    vgg = Vgg16(args.vgg_ckpt)
+    vgg2 = Vgg16(args.vgg_ckpt)
 
     """"Create Output Image Directory"""
-
-    train_summary_writer_jnt, test_summary_writer_jnt, logdir_jnt = tf_utils.createDirectories(root_dir, name="jnt", dir="tensorboard")
+    train_summary_writer_jnt, _, logdir_jnt = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="jnt", dir="tensorboard")
     print('tensorboard --logdir={}'.format(logdir_jnt))
-    # train_outImgDir_jnt, test_outImgDir_jnt = tf_utils.createDirectories(root_dir, name="jnt", dir="outputImg")
+    # train_outImgDir_jnt, _ = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="jnt", dir="outputImg")
 
-    optimizer_jnt, train_loss_jnt, test_loss_jnt = tf_utils.model_initialization("jnt", LEARNING_RATE) 
+    optimizer_jnt, train_loss_jnt, _ = tf_utils.model_initialization("jnt", LEARNING_RATE) 
 
     """Model initialization"""
-    optimizer_deq, train_loss_deq, test_loss_deq = tf_utils.model_initialization("deq", LEARNING_RATE) 
+    optimizer_deq, train_loss_deq, _ = tf_utils.model_initialization("deq", LEARNING_RATE) 
 
     ckpt_deq, ckpt_manager_deq = tf_utils.checkpoint_initialization(
                                     model_name="deq",
-                                    pretrained_dir=DEQ_PRETRAINED_DIR,
-                                    checkpoint_path=checkpoint_path,
+                                    pretrained_dirpath=DEQ_PRETRAINED_DIR,
                                     model=_deq,
                                     optimizer=optimizer_deq)
     
-    # train_summary_writer_lin, test_summary_writer_lin, logdir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="tensorboard")
+    # train_summary_writer_lin, _, logdir_lin = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="lin", dir="tensorboard")
     # print('tensorboard --logdir={}'.format(logdir_lin))
-    # train_outImgDir_lin, test_outImgDir_lin = tf_utils.createDirectories(root_dir, name="lin", dir="outputImg")
+    # train_outImgDir_lin, _ = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="lin", dir="outputImg")
     
     """Model initialization"""
-    optimizer_lin, train_loss_lin, test_loss_lin = tf_utils.model_initialization("lin", LEARNING_RATE)
+    optimizer_lin, train_loss_lin, _ = tf_utils.model_initialization("lin", LEARNING_RATE)
     train_crf_loss = tf.keras.metrics.Mean(name= 'train_crf_loss', dtype=tf.float32)
     ckpt_lin, ckpt_manager_lin = tf_utils.checkpoint_initialization(
                                     model_name="lin",
-                                    pretrained_dir=LIN_PRETRAINED_DIR,
-                                    checkpoint_path=checkpoint_path,
+                                    pretrained_dirpath=LIN_PRETRAINED_DIR,
                                     model=_lin,
                                     optimizer=optimizer_lin)
 
-    # train_summary_writer_hal, test_summary_writer_hal, logdir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="tensorboard")
+    # train_summary_writer_hal, _, logdir_hal = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="hal", dir="tensorboard")
     # print('tensorboard --logdir={}'.format(logdir_hal))
-    # train_outImgDir_hal, test_outImgDir_hal = tf_utils.createDirectories(root_dir, name="hal", dir="outputImg")
+    # train_outImgDir_hal, _ = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="hal", dir="outputImg")
 
     """Model initialization"""
-    optimizer_hal, train_loss_hal, test_loss_hal = tf_utils.model_initialization("hal", LEARNING_RATE)
+    optimizer_hal, train_loss_hal, _ = tf_utils.model_initialization("hal", LEARNING_RATE)
 
     ckpt_hal, ckpt_manager_hal = tf_utils.checkpoint_initialization(
                                     model_name="hal",
-                                    pretrained_dir=HAL_PRETRAINED_DIR,
-                                    checkpoint_path=checkpoint_path,
+                                    pretrained_dirpath=HAL_PRETRAINED_DIR,
                                     model=_hal,
                                     optimizer=optimizer_hal)
 
@@ -195,20 +160,18 @@ if __name__=="__main__":
             loss_lin = tf.multiply(10. * l2loss_lin + crf_loss, loss_mask)
 
             # Hallucination
-            bgr_hdr_t = tf_utils.rgb2bgr(hdr_t)
-            bgr_clipped_hdr_t = tf_utils.rgb2bgr(clipped_hdr_t)
-
-            pred_hal = _hal(bgr_clipped_hdr_t, training= True)
-            A_pred = (bgr_clipped_hdr_t) + alpha * pred_hal
+            bgr_pred_hal = _hal(clipped_hdr_t, training= True)
+            pred_hal = tf_utils.bgr2rgb(bgr_pred_hal)
+            A_pred = (clipped_hdr_t) + alpha * pred_hal
             vgg_pool1, vgg_pool2, vgg_pool3 = vgg(tf.math.log(1.0+10.0*A_pred)/tf.math.log(1.0+10.0))
-            vgg2_pool1, vgg2_pool2, vgg2_pool3 = vgg2(tf.math.log(1.0+10.0*bgr_hdr_t)/tf.math.log(1.0+10.0))
+            vgg2_pool1, vgg2_pool2, vgg2_pool3 = vgg2(tf.math.log(1.0+10.0*hdr_t)/tf.math.log(1.0+10.0))
 
             perceptual_loss = tf.reduce_mean(tf.abs((vgg_pool1 - vgg2_pool1)), axis=[1, 2, 3], keepdims=True)
             perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool2 - vgg2_pool2)), axis=[1, 2, 3], keepdims=True)
             perceptual_loss += tf.reduce_mean(tf.abs((vgg_pool3 - vgg2_pool3)), axis=[1, 2, 3], keepdims=True)
 
             y_final_gamma = tf.math.log(1.0+10.0*A_pred) /tf.math.log(1.0+10.0)
-            hdr_t_gamma   = tf.math.log(1.0+10.0*bgr_hdr_t)  /tf.math.log(1.0+10.0)
+            hdr_t_gamma   = tf.math.log(1.0+10.0*hdr_t)  /tf.math.log(1.0+10.0)
 
             l1loss_hal = tf.reduce_mean(tf.abs(y_final_gamma - hdr_t_gamma), axis=[1, 2, 3], keepdims=True)
             y_final_gamma_pad_x = tf.pad(y_final_gamma, [[0, 0], [0, 1], [0, 0], [0, 0]], 'SYMMETRIC')
@@ -228,8 +191,6 @@ if __name__=="__main__":
         train_loss_hal(loss_hal)
         train_loss_jnt(total_loss)
 
-        A_pred = tf_utils.bgr2rgb(A_pred)
-
         return [C_pred, B_pred, A_pred, alpha]
 
     train_loss = [train_loss_deq, train_loss_lin, train_loss_hal, train_loss_jnt]
@@ -238,7 +199,7 @@ if __name__=="__main__":
 
     def train(train_step="train_step"):
         
-        dataset_reader = RandDatasetReader(get_train_dataset(HDR_PREFIX), BATCH_SIZE)
+        dataset_reader = RandDatasetReader(get_train_dataset(args.dir), BATCH_SIZE)
         
         # print("hdr len : ", hdr.__len__() , "   hdr shape : ", np.shape(hdr))
         # print("crf len : ", crf.__len__() , "   crf shape : ", np.shape(crf))
@@ -306,3 +267,27 @@ if __name__=="__main__":
     train( train_step=train_step )
     
     print("End of training")
+    
+
+if __name__=="__main__":
+    
+    import argparse
+    
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+    # Restrict TensorFlow to only use the first GPU
+        try:
+            tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+        except RuntimeError as e:
+            # Visible devices must be set at program startup
+            print(e)
+
+    parser = argparse.ArgumentParser(description="Joint training of SingleHDR")
+    parser.add_argument('--dir', type=str)
+    parser.add_argument('--deq_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq"))
+    parser.add_argument('--lin_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin"))
+    parser.add_argument('--hal_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal"))
+    parser.add_argument('--vgg_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, 'vgg16.npy'))
+    
+    args = parser.parse_args
+    run(args)

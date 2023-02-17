@@ -89,23 +89,22 @@ def run(args):
     BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and other layers)
     """
     
-    # TODO
     TRAIN_DEQ = str2bool(args.deq)
     TRAIN_LIN = str2bool(args.lin)
     TRAIN_HAL = str2bool(args.hal)
 
     # Absolute path
-    DEQ_PRETRAINED_DIR = args.deq_w
-    LIN_PRETRAINED_DIR = args.lin_w
-    HAL_PRETRAINED_DIR = args.hal_w
+    DEQ_PRETRAINED_DIR = args.deq_ckpt
+    LIN_PRETRAINED_DIR = args.lin_ckpt
+    HAL_PRETRAINED_DIR = args.hal_ckpt
 
     """Path for tf.summary.FileWriter and to store model checkpoints"""
     
     _deq  = deq.model()
     _lin = lin.model()
     _hal = hal.model()
-    vgg = Vgg16(args.vgg_w)
-    vgg2 = Vgg16(args.vgg_w)
+    vgg = Vgg16(args.vgg_ckpt)
+    vgg2 = Vgg16(args.vgg_ckpt)
 
     """"Create Output Image Directory"""
     if(TRAIN_DEQ):
@@ -350,14 +349,14 @@ if __name__=="__main__":
             print(e)
 
     parser = argparse.ArgumentParser(description="train SingleHDR")
-    parser.add_argument('--dir', type=str)
+    parser.add_argument('--hdrdir', type=str)
     parser.add_argument('--deq', type=str, default="False")
     parser.add_argument('--lin', type=str, default="False")
     parser.add_argument('--hal', type=str, default="False")
-    parser.add_argument('--deq_w', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq"))
-    parser.add_argument('--lin_w', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin"))
-    parser.add_argument('--hal_w', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal"))
-    parser.add_argument('--vgg_w', type=str, default=os.path.join(CURRENT_WORKINGDIR, 'vgg16.npy'))
+    parser.add_argument('--deq_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq"))
+    parser.add_argument('--lin_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin"))
+    parser.add_argument('--hal_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal"))
+    parser.add_argument('--vgg_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, 'vgg16.npy'))
     
     args = parser.parse_args
     run(args)

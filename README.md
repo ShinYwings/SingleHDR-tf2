@@ -6,7 +6,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 
 # Note
 
-- Most pretrained weight provided from [ofiicial git repository](https://github.com/alex04072000/SingleHDR) can be used in this code.
+- Most pretrained weight provided from [the ofiicial git repository](https://github.com/alex04072000/SingleHDR) can be used in this code.
   > Not support loading "crf-net_v2.npy" in linearization_net.
 
 - I have modified some original codes that do not match the paper's description or are potentially error-prone.
@@ -46,6 +46,12 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
           return histogram_tensor
           # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
       ```
+
+  - Create "joint_training" as described in the paper
+
+    ```
+      joint_training.py
+    ```
 
   - Training of the Hallucination-Net
     - train_hallucination_net.py (original code)
@@ -97,38 +103,38 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 1. Download the pre-trained weights of [vgg16](https://drive.google.com/file/d/1sNrwJJxCTIJ1G_7kgXkITCXZvmrJvSe5/view?usp=sharing) and [vgg16_places365_weights](https://drive.google.com/file/d/1_onEcNKpMR1R-AzWRrY9FQtHf7NGKTX5/view?usp=sharing)
 2. Download the training data of [HDR-Synth and HDR-Real](https://drive.google.com/file/d/1muy49Pd0c7ZkxyxoxV7vIRvPv6kJdPR2/view?usp=sharing)
 
-## Train the Dequantization-Net
+## Train the Dequantization-Net using HDR-Synth dataset
 
   ```
-  python train.py --logdir_path "output/deq/ckpt/path" --hdr_prefix "hdr/synth/training/data/path"
+  python train.py --deq True --deq_ckpt "output/deq/ckpt/path" --dir "hdr/synth/training/data/path"
   ```
 
-## Train the Linearization-Net
+## Train the Linearization-Net using HDR-Synth dataset
 
   ```
-  python train.py --logdir_path "output/lin/ckpt/path" --hdr_prefix "hdr/synth/training/data/path"
+  python train.py --lin True --lin_ckpt "output/lin/ckpt/path" --dir "hdr/synth/training/data/path"
   ```
 
-## Train the Hallucination-Net
+## Train the Hallucination-Net using HDR-Synth dataset
 
   ```
-  python train.py --logdir_path "output/hal/ckpt/path" --hdr_prefix "hdr/synth/training/data/path"
+  python train.py --hal True --hal_ckpt "output/hal/ckpt/path" --dir "hdr/synth/training/data/path"
   ```
 
-## Joint training of the entire pipeline
+## Joint training of the entire pipeline using HDR-Synth dataset
 
   ```
-  python joint_training.py --logdir_path "output/hal/ckpt/path" --tfrecords_path "converted/tfrecords/path" --deq_ckpt "pretrained/deq/ckpt" --lin_ckpt "pretrained/lin/ckpt" --deq_ckpt "pretrained/hal/ckpt"
+  python joint_training.py --deq_ckpt "pretrained/deq/ckpt" --lin_ckpt "pretrained/lin/ckpt" --hal_ckpt "pretrained/hal/ckpt" --vgg_ckpt "pretrained/vgg/ckpt" --dir "hdr/synth/training/data/path" 
   ```
 
-## Fine-tuning the entire pipeline with Refinement-Net using real HDR dataset
+## Fine-tuning the entire pipeline with Refinement-Net using HDR-real dataset
 
   1. Convert the real HDR-jpg paired data into tfrecords for training.
 
       ```
-      python convert_to_tf_record.py
+      python convert_to_tf_record.py --dir "hdr/real/training/data/path"
       ```
-  
+
   2. Fine-tuning the entire pipeline with Refinement-Net
 
       ```

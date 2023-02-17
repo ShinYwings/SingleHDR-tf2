@@ -9,83 +9,91 @@ TFRECORD_OPTION = tf.io.TFRecordOptions(compression_type="GZIP")
 def bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-out_dir = 'tf_records/256_64_b32_tfrecords'
 patch_size = 256
 patch_stride = 64
 batch_size = 32
-
-if not os.path.isdir(out_dir):
-    os.makedirs(out_dir)
-
 count = 0
-cur_writing_path = os.path.join(out_dir, "train_{:d}_{:04d}.tfrecords".format(patch_stride, 0))
 
-HDRs_512 = sorted(glob.glob('/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Real/HDR_gt/*.hdr'))
-LDRs_512 = sorted(glob.glob('/media/shin/2nd_m.2/singleHDR/SingleHDR_training_data/HDR-Real/LDR_in/*.jpg'))
+def run(args):
+    out_dir = f'tf_records/{patch_size}_{patch_stride}_b{batch_size}_tfrecords'
 
-# HDRs_512 = sorted(glob.glob('/home/cvnar2/Desktop/nvme/singleHDR/SingleHDR_training_data/HDR-Real/HDR_gt/*.hdr'))
-# LDRs_512 = sorted(glob.glob('/home/cvnar2/Desktop/nvme/singleHDR/SingleHDR_training_data/HDR-Real/LDR_in/*.jpg'))
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
 
-for i, scene_dir in enumerate(HDRs_512):
-    if (i % 10 == 0):
-        print(f'{i}/{len(HDRs_512)}')
+    cur_writing_path = os.path.join(out_dir, "train_{:d}_{:04d}.tfrecords".format(patch_stride, 0))
 
-    # read images
+    HDRs_512 = sorted(glob.glob(f'{args.dir}/HDR_gt/*.hdr'))
+    LDRs_512 = sorted(glob.glob(f'{args.dir}/LDR_in/*.jpg'))
 
-    ref_HDR = cv2.imread(HDRs_512[i], -1).astype(np.float32)  # read raw values
-    ref_LDR = cv2.imread(LDRs_512[i]).astype(np.float32)   # read jpg
+    for i, scene_dir in enumerate(HDRs_512):
+        if (i % 10 == 0):
+            print(f'{i}/{len(HDRs_512)}')
 
-    h, w, c = ref_HDR.shape
+        # read images
+        ref_HDR = cv2.imread(HDRs_512[i], -1).astype(np.float32)  # read raw values
+        ref_LDR = cv2.imread(LDRs_512[i]).astype(np.float32)   # read jpg
 
-    def write_example(h1, h2, w1, w2):
-        global count
-        global writer
+        h, w, c = ref_HDR.shape
 
-        cur_batch_index = count // batch_size
+        def write_example(h1, h2, w1, w2):
+            global count
+            global writer
 
-        if count % batch_size == 0:
-            writer.close()
-            cur_writing_path = os.path.join(out_dir,
-                                            "train_{:d}_{:04d}.tfrecords".format(patch_stride, cur_batch_index))
-            writer = tf.io.TFRecordWriter(cur_writing_path, TFRECORD_OPTION)
+            cur_batch_index = count // batch_size
 
-        ref_HDR_patch = ref_HDR[h1:h2, w1:w2, ::-1]
-        ref_LDR_patch = ref_LDR[h1:h2, w1:w2, ::-1]
+            if count % batch_size == 0:
+                writer.close()
+                cur_writing_path = os.path.join(out_dir,
+                                                "train_{:d}_{:04d}.tfrecords".format(patch_stride, cur_batch_index))
+                writer = tf.io.TFRecordWriter(cur_writing_path, TFRECORD_OPTION)
 
-        """extreme cases filtering"""
-        ref_LDR_patch_gray = cv2.cvtColor(ref_LDR_patch, cv2.COLOR_RGB2GRAY)
-        extreme_pixels = np.sum(ref_LDR_patch_gray >= 249.0) + np.sum(ref_LDR_patch_gray <= 6.0)
-        if extreme_pixels <= 256*256//2:
-            print('pass')
+            ref_HDR_patch = ref_HDR[h1:h2, w1:w2, ::-1]
+            ref_LDR_patch = ref_LDR[h1:h2, w1:w2, ::-1]
 
-            count += 1
+            """extreme cases filtering"""
+            ref_LDR_patch_gray = cv2.cvtColor(ref_LDR_patch, cv2.COLOR_RGB2GRAY)
+            extreme_pixels = np.sum(ref_LDR_patch_gray >= 249.0) + np.sum(ref_LDR_patch_gray <= 6.0)
+            if extreme_pixels <= 256*256//2:
+                print('pass')
 
-            # create example
-            example = tf.train.Example(features=tf.train.Features(feature={
-                'ref_HDR': bytes_feature(ref_HDR_patch.tostring()),
-                'ref_LDR': bytes_feature(ref_LDR_patch.tostring()),
-            }))
-            writer.write(example.SerializeToString())
-        else:
-            print('filtered out')
+                count += 1
+
+                # create example
+                example = tf.train.Example(features=tf.train.Features(feature={
+                    'ref_HDR': bytes_feature(ref_HDR_patch.tostring()),
+                    'ref_LDR': bytes_feature(ref_LDR_patch.tostring()),
+                }))
+                writer.write(example.SerializeToString())
+            else:
+                print('filtered out')
 
 
-    # generate patches
-    for h_ in range(0, h - patch_size + 1, patch_stride):
-        for w_ in range(0, w - patch_size + 1, patch_stride):
-            write_example(h_, h_ + patch_size, w_, w_ + patch_size)
-
-    # deal with border patch
-    if h % patch_size:
-        for w_ in range(0, w - patch_size + 1, patch_stride):
-            write_example(h - patch_size, h, w_, w_ + patch_size)
-
-    if w % patch_size:
+        # generate patches
         for h_ in range(0, h - patch_size + 1, patch_stride):
-            write_example(h_, h_ + patch_size, w - patch_size, w)
+            for w_ in range(0, w - patch_size + 1, patch_stride):
+                write_example(h_, h_ + patch_size, w_, w_ + patch_size)
 
-    if w % patch_size and h % patch_size:
-        write_example(h - patch_size, h, w - patch_size, w)
+        # deal with border patch
+        if h % patch_size:
+            for w_ in range(0, w - patch_size + 1, patch_stride):
+                write_example(h - patch_size, h, w_, w_ + patch_size)
 
-writer.close()
-print("Finished!\nTotal number of patches:", count)
+        if w % patch_size:
+            for h_ in range(0, h - patch_size + 1, patch_stride):
+                write_example(h_, h_ + patch_size, w - patch_size, w)
+
+        if w % patch_size and h % patch_size:
+            write_example(h - patch_size, h, w - patch_size, w)
+
+    writer.close()
+    print("Finished!\nTotal number of patches:", count)
+
+if __name__=="__main__":
+    
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="cvt to tfrecord")
+    parser.add_argument('--dir', type=str) 
+    args = parser.parse_args
+    
+    run(args)
