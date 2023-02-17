@@ -47,7 +47,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
           # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
       ```
 
-  - Training Hallucination-Net
+  - Training of the Hallucination-Net
     - Original code (@train_hallucination_net.py)
 
       ```diff
@@ -97,19 +97,19 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 1. Download the pre-trained weights of [vgg16](https://drive.google.com/file/d/1sNrwJJxCTIJ1G_7kgXkITCXZvmrJvSe5/view?usp=sharing) and [vgg16_places365_weights](https://drive.google.com/file/d/1_onEcNKpMR1R-AzWRrY9FQtHf7NGKTX5/view?usp=sharing)
 2. Download the training data of [HDR-Synth and HDR-Real](https://drive.google.com/file/d/1muy49Pd0c7ZkxyxoxV7vIRvPv6kJdPR2/view?usp=sharing)
 
-## Training of the Dequantization-Net
+## Train the Dequantization-Net
 
   ```
   python train.py --logdir_path "output/deq/ckpt/path" --hdr_prefix "hdr/synth/training/data/path"
   ```
 
-## Training of the Linearization-Net
+## Train the Linearization-Net
 
   ```
   python train.py --logdir_path "output/lin/ckpt/path" --hdr_prefix "hdr/synth/training/data/path"
   ```
 
-## Training of the Hallucination-Net
+## Train the Hallucination-Net
 
   ```
   python train.py --logdir_path "output/hal/ckpt/path" --hdr_prefix "hdr/synth/training/data/path"
