@@ -29,7 +29,6 @@ def _get_crf_list():
     crf_list = np.float32([ele.split() for ele in crf_list])
     np.random.RandomState(730).shuffle(crf_list)
     
-    # TODO  why train, test set overlapped?
     test_crf_list = crf_list[-10:]
     train_crf_list = crf_list[:-10]
 
@@ -39,7 +38,6 @@ test_crf_list, train_crf_list = _get_crf_list()
 
 # --- invcrf_list
 
-# TODO inverse rf..... but only do interpolation between a gap.......
 def _inverse_rf(_rf):  # [s]
     rf = _rf.copy()
     s, = rf.shape

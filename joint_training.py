@@ -38,7 +38,7 @@ BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 16
 
-EPOCHS = 5000000
+EPOCHS = 5000000 # "EPOCHS" means "iteraion", NOT literally "epoch" in this code. 
 
 HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
 
@@ -168,7 +168,7 @@ if __name__=="__main__":
     #     plt.imshow(image[i])
     #     plt.axis('off')
     # plt.show()
-            
+    
     @tf.function
     def train_step(ds, invcrf):
         ldr, jpeg_img_float, clipped_hdr_t, hdr_t, loss_mask = ds
@@ -217,10 +217,7 @@ if __name__=="__main__":
             tv_loss_y = tf.reduce_mean(tf.abs(y_final_gamma_pad_y[:, :, 1:] - y_final_gamma_pad_y[:, :, :-1]))
             tv_loss = tv_loss_x + tv_loss_y
             loss_hal   = tf.multiply((l1loss_hal + 0.001 * perceptual_loss + 0.1 * tv_loss), loss_mask)
-            
             total_loss = loss_deq + loss_lin + loss_hal
-            # total_loss = loss_deq + 10. * loss_lin + crf_loss + loss_hal + 0.001 * perceptual_loss + 0.1 * tv_loss
-            # total_loss = tf.reduce_mean(tf.multiply(total_loss, loss_mask))
         
         gradients = tape.gradient(total_loss, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables)
         optimizer_jnt.apply_gradients(zip(gradients, _deq.trainable_variables+_lin.trainable_variables+_hal.trainable_variables))
@@ -235,18 +232,11 @@ if __name__=="__main__":
 
         return [C_pred, B_pred, A_pred, alpha]
 
-    @tf.function
-    def test_step(gt):
-        # NO USED, NO TYPED
-        pred = _deq(gt, training= False)
-        l1_loss = tf.reduce_mean(tf.square(pred - gt))
-        test_loss_deq(l1_loss)
-
     train_loss = [train_loss_deq, train_loss_lin, train_loss_hal, train_loss_jnt]
     ckpt = [ckpt_deq, ckpt_lin, ckpt_hal]
     ckpt_manager = [ckpt_manager_deq, ckpt_manager_lin, ckpt_manager_hal]
 
-    def train(train_step="train_step", test_step="test_step"):
+    def train(train_step="train_step"):
         
         dataset_reader = RandDatasetReader(get_train_dataset(HDR_PREFIX), BATCH_SIZE)
         
@@ -255,7 +245,7 @@ if __name__=="__main__":
         # print("t   len : ", t.__len__() , "   t shape : ", np.shape(t))
 
         #########################################
-        for epoch in range(1, EPOCHS+1): # ACTUALLY iteraion, NOT Epoch in this paper, 
+        for epoch in range(1, EPOCHS+1): # "EPOCHS" means "iteraion", NOT literally "epoch" in this code. 
 
             start = time.perf_counter()
 
@@ -311,8 +301,8 @@ if __name__=="__main__":
                     save_path =  cm.save()
                     print(f"Saved checkpoint for step {epoch}: {save_path}")
         
-    print("시작")
+    print("Start to train")
     
-    train( train_step=train_step, test_step=test_step )
+    train( train_step=train_step )
     
-    print("끝")
+    print("End of training")

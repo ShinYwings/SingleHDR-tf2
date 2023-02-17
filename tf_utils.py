@@ -1,5 +1,7 @@
 import tensorflow as tf
 import utils
+import os
+import sys
 
 def rgb2bgr(rgb):
     red, green, blue = tf.split(rgb, 3, 3)
@@ -146,21 +148,19 @@ def createDirectories(path, name="name", dir="dir"):
         return train_logdir, test_logdir
 
 def checkpoint_initialization(model_name : str,
-                                pretrained_dir : str,
-                                checkpoint_path : str,
+                                pretrained_dirpath : str,
                                 model="model",
                                 optimizer="optimizer",
                                 ):
-    if pretrained_dir is None:
-        checkpoint_path = utils.createNewDir(checkpoint_path, model_name)
-    else: checkpoint_path = pretrained_dir
+    
+    os.makedirs(pretrained_dirpath, exist_ok=True)
     
     ckpt = tf.train.Checkpoint(
                             epoch = tf.Variable(0),
                             lin=model,
                            optimizer=optimizer,)
 
-    ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+    ckpt_manager = tf.train.CheckpointManager(ckpt, pretrained_dirpath, max_to_keep=5)
 
     #  if a checkpoint exists, restore the latest checkpoint.
     if ckpt_manager.latest_checkpoint:

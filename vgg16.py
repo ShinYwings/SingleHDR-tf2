@@ -40,38 +40,6 @@ class conv2d(Layer):
     def get_bias(self, name):
         return tf.constant(self.data_dict[name][1], name="biases")
 
-# class fc2d(Layer):
-#     def __init__(self, data_dict='data_dict'):
-#         super(fc2d, self).__init__()
-#         self.data_dict = data_dict
-
-#     def build(self,input_shape):
-
-#         self.w = self.get_fc_weight()
-       
-#         self.biases = self.get_bias()
-
-#         super(fc2d, self).build(input_shape)
-
-#     def call(self, input):
-        
-#         shape = input.get_shape().as_list()
-#         dim = 1
-#         for d in shape[1:]:
-#             dim *= d
-#         fc = tf.reshape(input, [-1, dim])
-
-#         fc = tf.matmul(fc, self.w)
-#         fc = tf.nn.bias_add(fc, self.biases)
-
-#         return fc
-
-#     def get_fc_weight(self):
-#         return tf.constant(self.data_dict[self.name][0], name="weights")
-
-#     def get_bias(self):
-#         return tf.constant(self.data_dict[self.name][1], name="biases")
-
 class maxpool2d(Layer):
     def __init__(self, kernel_size=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME", layer_name="layer_name"):
         

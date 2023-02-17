@@ -8,11 +8,9 @@ import os
 import numpy as np
 import tensorflow as tf
 import time
-from tqdm import tqdm
 
 import utils
 import tf_utils
-# from random_tone_map import random_tone_map
 
 import dequantization_net as deq
 import linearization_net as lin

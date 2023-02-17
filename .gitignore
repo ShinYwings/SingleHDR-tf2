@@ -142,6 +142,4 @@ result_checkpoints/
 output_imgs/
 HDR-Real-output/
 
-crf.txt
-crf_net_v2.npy
-dorfCurves.txt
+train_analysis.py

@@ -9,19 +9,19 @@ class resBlock_type1(Model):
         super(resBlock_type1, self).__init__()
         
         # branch #1
-        self.conv1 = tf.keras.layers.Conv2D(branch1_filter, kernel_size=(1,1), strides=strides, use_bias=False, padding=padding)
+        self.conv1 = tf.keras.layers.Conv2D(branch1_filter, kernel_size=kernel_size, strides=strides, use_bias=False, padding=padding)
         self.norm1   = tf.keras.layers.BatchNormalization()
 
         # branch #2
-        self.conv2 = tf.keras.layers.Conv2D(branch2_filters[0], kernel_size=(1,1), strides=strides, use_bias=False, padding=padding)
+        self.conv2 = tf.keras.layers.Conv2D(branch2_filters[0], kernel_size=kernel_size, strides=strides, use_bias=False, padding=padding)
         self.norm2   = tf.keras.layers.BatchNormalization()
         self.act2  = tf.keras.layers.ReLU()
 
-        self.conv3 = tf.keras.layers.Conv2D(branch2_filters[1], kernel_size=(3,3), strides=(1,1), use_bias=False, padding=padding)
+        self.conv3 = tf.keras.layers.Conv2D(branch2_filters[1], kernel_size=(3,3), strides=strides, use_bias=False, padding=padding)
         self.norm3   = tf.keras.layers.BatchNormalization()
         self.act3  = tf.keras.layers.ReLU()
 
-        self.conv4 = tf.keras.layers.Conv2D(branch2_filters[2], kernel_size=(1,1), strides=(1,1), use_bias=False, padding=padding)
+        self.conv4 = tf.keras.layers.Conv2D(branch2_filters[2], kernel_size=kernel_size, strides=strides, use_bias=False, padding=padding)
         self.norm4   = tf.keras.layers.BatchNormalization()
 
         self.act4  = tf.keras.layers.ReLU() # bn1 + bn4
@@ -52,15 +52,15 @@ class resBlock_type2(Model):
     def __init__(self, filters = [], kernel_size=(1,1), strides=(1,1), padding="padding"):
         super(resBlock_type2, self).__init__()
         
-        self.conv1 = tf.keras.layers.Conv2D(filters[0], kernel_size=(1,1), strides=(1,1), use_bias=False, padding=padding)
+        self.conv1 = tf.keras.layers.Conv2D(filters[0], kernel_size=kernel_size, strides=strides, use_bias=False, padding=padding)
         self.norm1 = tf.keras.layers.BatchNormalization()
         self.act1  = tf.keras.layers.ReLU()
 
-        self.conv2 = tf.keras.layers.Conv2D(filters[1], kernel_size=(3,3), strides=(1,1), use_bias=False, padding=padding)
+        self.conv2 = tf.keras.layers.Conv2D(filters[1], kernel_size=(3,3), strides=strides, use_bias=False, padding=padding)
         self.norm2 = tf.keras.layers.BatchNormalization()
         self.act2  = tf.keras.layers.ReLU()
 
-        self.conv3 = tf.keras.layers.Conv2D(filters[2], kernel_size=(1,1), strides=(1,1), use_bias=False, padding=padding)
+        self.conv3 = tf.keras.layers.Conv2D(filters[2], kernel_size=kernel_size, strides=strides, use_bias=False, padding=padding)
         self.norm3 = tf.keras.layers.BatchNormalization()
 
         self.act3  = tf.keras.layers.ReLU() # bn1 + bn4
@@ -182,7 +182,6 @@ class AEInvcrfDecodeNet(Model):
         self.n_p = 12
         self.act = tf.nn.tanh
         self.reg = tf.keras.regularizers.L2(l2 = 1e-3)
-
         self.fc = tf.keras.layers.Dense(self.n_p - 1)
 
     # [b, s]
