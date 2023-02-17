@@ -54,7 +54,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
       299   with tf.variable_scope("Hallucination_Net"):
       230       net, vgg16_conv_layers = hallucination_net.model(clipped_hdr_t, ARGS.batch_size, True)
       231       y_predict = tf.nn.relu(net.outputs)
-      -   
+      -                                                           
       232       y_final = (clipped_hdr_t) + alpha * y_predict # residual
 
       ...
