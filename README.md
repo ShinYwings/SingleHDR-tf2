@@ -10,7 +10,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
   > Not support loading "crf-net_v2.npy" in linearization_net.
 
 - Modified `spatial-aware soft-histogram layer` that does not match the paper's description in Linearization-Net.
-  - The histogram bin $b$ in the original code starts at index 0, but it should be started at index 1. ($\because b \isin \{1, \cdots, B\}$)
+  - The histogram bin $b$ in the original code starts at index 0, but it should be started at index 1. ($\because b \in \{1, \cdots, B\}$)
   - The distance equation in the original code is  $$d = |I(i,j,c)- \frac {b} {B}|$$
     I modified the distance equation in my code as described in the paper (see below figure).
     <img src="figure/lin.png" width="70%" height="70%">
