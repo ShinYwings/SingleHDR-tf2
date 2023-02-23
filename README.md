@@ -10,12 +10,12 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
     > Not support loading "crf-net_v2.npy" in linearization_net.
 
 2. Modified `spatial-aware soft-histogram layer` that does not match the paper's description in Linearization-Net.
-    - The histogram bin $b$ in the original code starts at index 0, but it should be started at index 1. ($\because b \in \lbrace 1, \cdots, B \rbrace $)
-    - The distance equation in the original code is  $$d = |I(i,j,c)- \frac {b} {B}|$$
+    * The histogram bin $b$ in the original code starts at index 0, but it should be started at index 1. ($\because b \in \lbrace 1, \cdots, B \rbrace $)
+    * The distance equation in the original code is  $$d = |I(i,j,c)- \frac {b} {B}|$$
       I modified the distance equation in my code as described in the paper (see below figure).
       <img src="figure/lin.png" width="70%" height="70%">
 
-    - linearization_net.py (original code)
+    * linearization_net.py (original code)
 
       ```diff
       def histogram_layer(img, max_bin):
@@ -31,7 +31,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
           # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
       ```
 
-    - linearization_net.py (my code)
+    * linearization_net.py (my code)
 
       ```diff
       def histogram_layer(self, img, max_bin):
@@ -53,8 +53,8 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 
 3. To prevent potentially errors, I added a function that converts channel format in the training process of the Hallucination-Net.
 
-    - Hallucination_net in the original code returns an output image in BGR format. However, Vgg16 used for "perceptual loss" in the training process takes an input image in RGB format. So, in my code, I applied the `tf_utils.bgr2rgb` function to the output image of hallucination_net.
-    - train_hallucination_net.py (original code)
+    * Hallucination_net in the original code returns an output image in BGR format. However, Vgg16 used for "perceptual loss" in the training process takes an input image in RGB format. So, in my code, I applied the `tf_utils.bgr2rgb` function to the output image of hallucination_net.
+    * train_hallucination_net.py (original code)
 
       ```diff
       299   with tf.variable_scope("Hallucination_Net"):
@@ -74,7 +74,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
       248   perceptual_loss += tf.reduce_mean(tf.abs((vgg.pool3 - vgg2.pool3)), axis=[1, 2, 3], keepdims=True)
       ```
 
-    - train.py (my code)
+    * train.py (my code)
 
       ```diff
       215   with tf.GradientTape() as hal_tape:
@@ -97,11 +97,11 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 
 # Requirements
 
-- tensorflow >= 2.4
-- pickle
-- scipy
-- opencv
-- tqdm
+* tensorflow >= 2.4
+* pickle
+* scipy
+* opencv
+* tqdm
 
 # Usage
 
