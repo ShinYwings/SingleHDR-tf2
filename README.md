@@ -17,39 +17,39 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 
   - linearization_net.py (original code)
 
-    ```diff
-    def histogram_layer(img, max_bin):
-      # histogram branch
-      tmp_list = []
-    
-    - for i in range(max_bin + 1):
-    -   histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
-        tmp_list.append(histo)
+      ```diff
+      def histogram_layer(img, max_bin):
+          # histogram branch
+          tmp_list = []
       
-      histogram_tensor = tf.concat(tmp_list, -1)
-      return histogram_tensor
-      # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
-    ```
+      -   for i in range(max_bin + 1):
+      -     histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
+            tmp_list.append(histo)
+        
+          histogram_tensor = tf.concat(tmp_list, -1)
+          return histogram_tensor
+          # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
+      ```
 
   - linearization_net.py (my code)
 
-    ```diff
-    def histogram_layer(self, img, max_bin):
-        # histogram branch
-        tmp_list = []   
-    +   _threshold = 1. / max_bin
-    +   condition = lambda x: tf.less(x, _threshold)
-    +   max_bin_square = 2.*max_bin
+      ```diff
+      def histogram_layer(self, img, max_bin):
+          # histogram branch
+          tmp_list = []   
+      +   _threshold = 1. / max_bin
+      +   condition = lambda x: tf.less(x, _threshold)
+      +   max_bin_square = 2.*max_bin
 
-    +   for i in range(1, max_bin + 1):
-    +     distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_square))
-    +     histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
-          tmp_list.append(histo)
+      +   for i in range(1, max_bin + 1):
+      +     distance = tf.abs(img - tf.divide((2.*i - 1.), max_bin_square))
+      +     histo = tf.where(condition(distance) , tf.subtract(1., tf.multiply(distance, max_bin)), 0)
+            tmp_list.append(histo)
 
-        histogram_tensor = tf.concat(tmp_list, -1)
-        return histogram_tensor
-        # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
-    ```
+          histogram_tensor = tf.concat(tmp_list, -1)
+          return histogram_tensor
+          # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
+      ```
 
 - To prevent potentially errors, I added a function that converts channel format in the training process of the Hallucination-Net.
 
