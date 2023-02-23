@@ -6,7 +6,7 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 
 # Note
 
-1. Most pretrained weight provided from [the official git repository](https://github.com/alex04072000/SingleHDR) can be used in this code.
+1. Most of the pre-trained weights provided by [the official git repository](https://github.com/alex04072000/SingleHDR) can be used in this code.
     > Not support loading "crf-net_v2.npy" in linearization_net.
 
 2. Modified `spatial-aware soft-histogram layer` that does not match the paper's description in Linearization-Net.
