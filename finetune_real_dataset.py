@@ -5,13 +5,15 @@ import os
 import tensorflow as tf
 import time
 
-import utils
+import tqdm
 import tf_utils
 
 import dequantization_net as deq
 import linearization_net as lin
 import hallucination_net as hal
 import refinement_net as ref
+
+from convert_to_tf_record import patch_size, patch_stride, batch_size
 
 AUTO = tf.data.AUTOTUNE
 
@@ -20,22 +22,15 @@ BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and
 """
 # Hyper parameters
 LEARNING_RATE = 1e-5
-BATCH_SIZE = 16
+BATCH_SIZE = 4
 THRESHOLD = 0.12
-
-EPOCHS = 1000
+EPOCHS = 100000
 IMSHAPE = (256,256,3)
 
-HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
+HDR_EXTENSION = "hdr" # Available ext.: hdr
 
 CURRENT_WORKINGDIR = os.getcwd()
-DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "tf_records/256_64_b32_tfrecords")
 
-DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq")
-LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
-HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal")
-REF_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/ref")
-    
 def _parse_function(example_proto):
     # Parse the input `tf.train.Example` proto using the dictionary above.
     feature_description = {
@@ -62,7 +57,7 @@ def _parse_function(example_proto):
     k = tf.cast(distortions[1] * 4 + 0.5, tf.int32)
     ref_HDR = tf.image.rot90(ref_HDR, k)
     ref_LDR = tf.image.rot90(ref_LDR, k)
-
+    
     return ref_LDR, ref_HDR
 
 def configureDataset(dirpath):
@@ -77,22 +72,16 @@ def configureDataset(dirpath):
     ds  = ds.shuffle(buffer_size = len(tfrecords_list)).batch(batch_size=BATCH_SIZE, drop_remainder=False).prefetch(AUTO)
 
     return ds
-        
-if __name__=="__main__":
     
-    gpus = tf.config.experimental.list_physical_devices('GPU')
-    if gpus:
-    # Restrict TensorFlow to only use the first GPU
-        try:
-            tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
-        except RuntimeError as e:
-            # Visible devices must be set at program startup
-            print(e)
-    
-    ds  = configureDataset(DATASET_DIR)
+def run(args):
 
-    """CheckPoint Create"""
-    checkpoint_path = utils.createNewDir(CURRENT_WORKINGDIR, "checkpoints")
+    DEQ_PRETRAINED_DIR = args.deq
+    LIN_PRETRAINED_DIR = args.lin
+    HAL_PRETRAINED_DIR = args.hal
+    REF_PRETRAINED_DIR = args.ref
+    
+    DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, f'tf_records/{patch_size}_{patch_stride}_b{batch_size}_tfrecords')
+    ds  = configureDataset(DATASET_DIR)
 
     _deq  = deq.model()
     _lin = lin.model()
@@ -104,18 +93,15 @@ if __name__=="__main__":
 
     ckpt_deq, ckpt_manager_deq = tf_utils.checkpoint_initialization(
                                     model_name="deq",
-                                    pretrained_dir=DEQ_PRETRAINED_DIR,
-                                    checkpoint_path=checkpoint_path,
+                                    pretrained_dirpath=DEQ_PRETRAINED_DIR,
                                     model=_deq,
                                     optimizer=optimizer_deq)
     
-      
     optimizer_lin, _, _ = tf_utils.model_initialization("lin", LEARNING_RATE)
 
     ckpt_lin, ckpt_manager_lin = tf_utils.checkpoint_initialization(
                                     model_name="lin",
-                                    pretrained_dir=LIN_PRETRAINED_DIR,
-                                    checkpoint_path=checkpoint_path,
+                                    pretrained_dirpath=LIN_PRETRAINED_DIR,
                                     model=_lin,
                                     optimizer=optimizer_lin)
     
@@ -124,21 +110,19 @@ if __name__=="__main__":
 
     ckpt_hal, ckpt_manager_hal = tf_utils.checkpoint_initialization(
                                     model_name="hal",
-                                    pretrained_dir=HAL_PRETRAINED_DIR,
-                                    checkpoint_path=checkpoint_path,
+                                    pretrained_dirpath=HAL_PRETRAINED_DIR,
                                     model=_hal,
                                     optimizer=optimizer_hal)
     
-    train_summary_writer_ref, test_summary_writer_ref, logdir_ref = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="ref", dir="tensorboard")
+    train_summary_writer_ref, _, logdir_ref = tf_utils.createDirectories(CURRENT_WORKINGDIR, name="ref", dir="tensorboard")
     print(f'tensorboard --logdir={logdir_ref}')
 
     """Model initialization"""
-    optimizer_ref, train_loss_ref, test_loss_ref = tf_utils.model_initialization("ref", LEARNING_RATE) 
+    optimizer_ref, train_loss_ref, _ = tf_utils.model_initialization("ref", LEARNING_RATE) 
 
     ckpt_ref, ckpt_manager_ref = tf_utils.checkpoint_initialization(
                                     model_name="ref",
-                                    pretrained_dir=REF_PRETRAINED_DIR,
-                                    checkpoint_path=checkpoint_path,
+                                    pretrained_dirpath=REF_PRETRAINED_DIR,
                                     model=_ref,
                                     optimizer=optimizer_ref)
 
@@ -179,12 +163,9 @@ if __name__=="__main__":
             alpha = tf.reshape(alpha, [-1, tf.shape(B_pred)[1], tf.shape(B_pred)[2], 1])
             alpha = tf.tile(alpha, [1, 1, 1, 3])
 
-            bgr_B_pred = tf_utils.rgb2bgr(B_pred)
-
-            hal_res = _hal(bgr_B_pred, training= True)
-            A_pred = (bgr_B_pred) + alpha * hal_res
-
-            A_pred = tf_utils.bgr2rgb(A_pred)
+            bgr_hal_res = _hal(pred, training= True)
+            hal_res = tf_utils.bgr2rgb(bgr_hal_res)
+            A_pred = (B_pred) + alpha * hal_res
 
             hdr_gamma = tf.math.log(1.0 + 10.0 * hdr) * denominator
 
@@ -201,18 +182,11 @@ if __name__=="__main__":
 
         # return [A_pred_loss, C_pred, B_pred, A_pred, refinement_output]
         return [C_pred, B_pred, A_pred, refinement_output]
-
-    @tf.function
-    def test_step(gt):
-        # NO USED, NO TYPED
-        pred = _deq(gt, training= False)
-        l1_loss = tf.square(pred - gt)
-        test_loss_ref(l1_loss)
     
     ckpts = [ckpt_deq, ckpt_lin, ckpt_hal, ckpt_ref]
     ckpt_managers = [ckpt_manager_deq, ckpt_manager_lin, ckpt_manager_hal, ckpt_manager_ref]
 
-    print("시작")
+    print("Start to fine-tune")
     
     for epoch in range(1, EPOCHS+1):
 
@@ -251,4 +225,28 @@ if __name__=="__main__":
             save_path =  ckpt_manager.save()
             print(f"Saved checkpoint for step {epoch}: {save_path}")
 
-    print("끝")
+    print("End of fine-tuning")
+    
+
+if __name__=="__main__":    
+    
+    import argparse
+    
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+    # Restrict TensorFlow to only use the first GPU
+        try:
+            tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+        except RuntimeError as e:
+            # Visible devices must be set at program startup
+            print(e)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--deq_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq"))
+    parser.add_argument('--lin_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin"))
+    parser.add_argument('--hal_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal"))
+    parser.add_argument('--ref_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/ref"))
+    args = parser.parse_args()
+    
+    run(args)
+    

@@ -84,7 +84,7 @@ if __name__=="__main__":
     """
     Check out the dataset that properly work
     """
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
     # plt.figure(figsize=(20,20))
     # i = 0
     # for (ldr, hdr) in ds.take(15):
@@ -114,12 +114,9 @@ if __name__=="__main__":
         alpha = tf.reshape(alpha, [-1, tf.shape(B_pred)[1], tf.shape(B_pred)[2], 1])
         alpha = tf.tile(alpha, [1, 1, 1, 3])
 
-        bgr_B_pred = tf_utils.rgb2bgr(B_pred)
-
-        hal_res = _hal(bgr_B_pred, training= False)
-        A_pred = (bgr_B_pred) + alpha * hal_res
-
-        A_pred = tf_utils.bgr2rgb(A_pred)
+        bgr_hal_res = _hal(B_pred, training= False)
+        hal_res = tf_utils.rgb2bgr(bgr_hal_res)
+        A_pred = (B_pred) + alpha * hal_res
 
         # Refinement
         refinement_output = _ref(tf.concat([A_pred, B_pred, C_pred], -1), training=False)
@@ -129,7 +126,7 @@ if __name__=="__main__":
     ckpts = [ckpt_deq, ckpt_lin, ckpt_hal, ckpt_ref]
     ckpt_managers = [ckpt_manager_deq, ckpt_manager_lin, ckpt_manager_hal, ckpt_manager_ref]
 
-    print("시작")
+    print("Start to inference")
     
     ldr_imgs = glob.glob(os.path.join(DATASET_DIR, '*.jpg'))
     ldr_imgs = sorted(ldr_imgs)
@@ -174,4 +171,4 @@ if __name__=="__main__":
         cv2.imwrite(os.path.join(outputDir, outputfile_path), HDR_out_val.numpy()) # rgb output [:,:,::-1]
         print(f"Spends time : {time.perf_counter() - start} seconds")
 
-    print("끝")
+    print("End of inferencing")
