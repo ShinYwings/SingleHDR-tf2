@@ -26,39 +26,25 @@ BGR input but RGB conversion in dataset.py (due to tf.image.rgb_to_grayscale and
 """
 # Hyper parameters
 THRESHOLD = 0.12
-IMSHAPE = (256,256,3)
-
 HDR_EXTENSION = "hdr" # Available ext.: exr, hdr
-
 CURRENT_WORKINGDIR = os.getcwd()
-DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, "testImg/HDR-Real-input")
 
-DEQ_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq")
-LIN_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin")
-HAL_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal")
-REF_PRETRAINED_DIR = os.path.join(CURRENT_WORKINGDIR, "checkpoints/ref")
-
-if __name__=="__main__":
-
-    gpus = tf.config.experimental.list_physical_devices('GPU')
-    if gpus:
-    # Restrict TensorFlow to only use the first GPU
-        try:
-            tf.config.experimental.set_visible_devices(gpus[1], 'GPU')
-        except RuntimeError as e:
-            # Visible devices must be set at program startup
-            print(e)
-
+def run(args):
+    
+    DATASET_DIR = args.dir
+    DEQ_PRETRAINED_DIR = args.deq_ckpt
+    LIN_PRETRAINED_DIR = args.lin_ckpt
+    HAL_PRETRAINED_DIR = args.hal_ckpt
+    REF_PRETRAINED_DIR = args.ref_ckpt
+    
     _deq  = deq.model()
     _lin = lin.model()
     _hal = hal.model()
     _ref = ref.model()
     
     """Model initialization"""
-    outputDir = utils.createNewDir(CURRENT_WORKINGDIR, "HDR-Real-output")
+    outputDir = utils.createNewDir(CURRENT_WORKINGDIR, args.output_path)
     
-    checkpoint_path = utils.createNewDir(CURRENT_WORKINGDIR, "checkpoints")
-
     optimizer_deq = tf.keras.optimizers.Adam(LEARNING_RATE)
     optimizer_lin = tf.keras.optimizers.Adam(LEARNING_RATE)
     optimizer_hal = tf.keras.optimizers.Adam(LEARNING_RATE)
@@ -72,7 +58,7 @@ if __name__=="__main__":
         ckpt_manager = tf.train.CheckpointManager(ckpt, pretrained, max_to_keep=5)
         if ckpt_manager.latest_checkpoint:
             ckpt.restore(ckpt_manager.latest_checkpoint)
-            print(f'Latest {name} checkpoint has restored!!')
+            print(f'Latest {name} checkpoint has restored.')
 
         return ckpt, ckpt_manager
 
@@ -123,9 +109,6 @@ if __name__=="__main__":
         
         return refinement_output
     
-    ckpts = [ckpt_deq, ckpt_lin, ckpt_hal, ckpt_ref]
-    ckpt_managers = [ckpt_manager_deq, ckpt_manager_lin, ckpt_manager_hal, ckpt_manager_ref]
-
     print("Start to inference")
     
     ldr_imgs = glob.glob(os.path.join(DATASET_DIR, '*.jpg'))
@@ -157,7 +140,7 @@ if __name__=="__main__":
         ldr_val = tf.convert_to_tensor(ldr_val, dtype=tf.float32)
         ldr_val = tf.expand_dims(ldr_val, axis=0)
 
-        # ldr_val =  rgb
+        ldr_val = tf_utils.bgr2rgb(ldr_val)
         HDR_out_val = inference(ldr_val)
 
         HDR_out_val = np.flip(HDR_out_val[0], -1)
@@ -168,7 +151,32 @@ if __name__=="__main__":
         imgname = os.path.split(ldr_img_path)[-1]
         imgname = str.split(imgname, sep=".")[0]
         outputfile_path= imgname +'.hdr'
-        cv2.imwrite(os.path.join(outputDir, outputfile_path), HDR_out_val.numpy()) # rgb output [:,:,::-1]
+        cv2.imwrite(os.path.join(outputDir, outputfile_path), HDR_out_val[:,:,::-1].numpy()) # bgr output [:,:,::-1]
         print(f"Spends time : {time.perf_counter() - start} seconds")
 
     print("End of inferencing")
+    
+if __name__=="__main__":    
+    
+    import argparse
+    
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+    # Restrict TensorFlow to only use the first GPU
+        try:
+            tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+        except RuntimeError as e:
+            # Visible devices must be set at program startup
+            print(e)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dir', type=str, default=os.path.join(CURRENT_WORKINGDIR, "testImg/HDR-Real-input"))
+    parser.add_argument('--output_path', type=str, default="HDR-Real-output")
+    parser.add_argument('--deq_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/deq"))
+    parser.add_argument('--lin_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/lin"))
+    parser.add_argument('--hal_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/hal"))
+    parser.add_argument('--ref_ckpt', type=str, default=os.path.join(CURRENT_WORKINGDIR, "checkpoints/ref"))
+    args = parser.parse_args()
+    
+    run(args)
+    

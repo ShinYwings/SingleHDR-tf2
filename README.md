@@ -102,10 +102,7 @@ def histogram_layer(self, img, max_bin):
 * scipy
 * opencv
 * tqdm
-
-# Usage
-
-# Result
+* glob
 
 # Training
 
@@ -149,3 +146,11 @@ def histogram_layer(self, img, max_bin):
       ```
       python finetune_real_dataset.py --deq_ckpt "pretrained/deq/ckpt" --lin_ckpt "pretrained/lin/ckpt" --deq_ckpt "pretrained/hal/ckpt" --ref_ckpt "pretrained/ref/ckpt"  
       ```
+
+# Inferencing
+
+* Run your own images. (Make sure your input images are in BGR format)
+
+    ```
+    python test_real_refinement.py --dir "your/input/images" --output_path "output/images/directory/name" --deq_ckpt "pretrained/deq/ckpt" --lin_ckpt "pretrained/lin/ckpt" --deq_ckpt "pretrained/hal/ckpt" --ref_ckpt "pretrained/ref/ckpt"  
+    ```

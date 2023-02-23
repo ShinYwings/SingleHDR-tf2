@@ -74,11 +74,10 @@ def configureDataset(dirpath):
     return ds
     
 def run(args):
-
-    DEQ_PRETRAINED_DIR = args.deq
-    LIN_PRETRAINED_DIR = args.lin
-    HAL_PRETRAINED_DIR = args.hal
-    REF_PRETRAINED_DIR = args.ref
+    DEQ_PRETRAINED_DIR = args.deq_ckpt
+    LIN_PRETRAINED_DIR = args.lin_ckpt
+    HAL_PRETRAINED_DIR = args.hal_ckpt
+    REF_PRETRAINED_DIR = args.ref_ckpt
     
     DATASET_DIR = os.path.join(CURRENT_WORKINGDIR, f'tf_records/{patch_size}_{patch_stride}_b{batch_size}_tfrecords')
     ds  = configureDataset(DATASET_DIR)
