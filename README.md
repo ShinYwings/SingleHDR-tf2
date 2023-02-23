@@ -19,16 +19,16 @@ Reconstructed "Single-Image HDR Reconstruction by Learning to Reverse the Camera
 
     ```diff
     def histogram_layer(img, max_bin):
-        # histogram branch
-        tmp_list = []
+      # histogram branch
+      tmp_list = []
     
-    -   for i in range(max_bin + 1):
-    -     histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
-          tmp_list.append(histo)
+    - for i in range(max_bin + 1):
+    -   histo = tf.nn.relu(1 - tf.abs(img - i / float(max_bin)) * float(max_bin))
+        tmp_list.append(histo)
       
-        histogram_tensor = tf.concat(tmp_list, -1)
-        return histogram_tensor
-        # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
+      histogram_tensor = tf.concat(tmp_list, -1)
+      return histogram_tensor
+      # histogram_tensor = tf.layers.average_pooling2d(histogram_tensor, 16, 1, 'same')
     ```
 
   - linearization_net.py (my code)
