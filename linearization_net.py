@@ -17,11 +17,11 @@ class resBlock_type1(Model):
         self.norm2   = tf.keras.layers.BatchNormalization()
         self.act2  = tf.keras.layers.ReLU()
 
-        self.conv3 = tf.keras.layers.Conv2D(branch2_filters[1], kernel_size=(3,3), strides=strides, use_bias=False, padding=padding)
+        self.conv3 = tf.keras.layers.Conv2D(branch2_filters[1], kernel_size=(3,3), strides=(1,1), use_bias=False, padding=padding)
         self.norm3   = tf.keras.layers.BatchNormalization()
         self.act3  = tf.keras.layers.ReLU()
 
-        self.conv4 = tf.keras.layers.Conv2D(branch2_filters[2], kernel_size=kernel_size, strides=strides, use_bias=False, padding=padding)
+        self.conv4 = tf.keras.layers.Conv2D(branch2_filters[2], kernel_size=kernel_size, strides=(1,1), use_bias=False, padding=padding)
         self.norm4   = tf.keras.layers.BatchNormalization()
 
         self.act4  = tf.keras.layers.ReLU() # bn1 + bn4
